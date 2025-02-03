@@ -7,7 +7,9 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
     thread,
 };
-use udp::{compose_message, listen_to_socket, parse_message, send_message_to_socket, socket};
+use udp::{
+    compose_message, listen_to_socket, parse_message, send_message_to_socket, socket, SocketMsg,
+};
 use utils::Rand;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -18,7 +20,7 @@ fn main() {
     let my_local_ip = local_ip().expect("Could not determine my ip");
     println!("This is my local IP address: {:?}", my_local_ip);
     let port = 53300;
-    let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::channel();
+    let (tx, rx): (Sender<SocketMsg>, Receiver<SocketMsg>) = mpsc::channel();
 
     let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port);
     let socket = socket(bind).unwrap();
@@ -36,7 +38,7 @@ fn main() {
                 }
             }
         } else {
-            let data = res.unwrap();
+            let data = res.unwrap().1;
             let parsed = parse_message(data).unwrap_or(udp::MessageType::NoMessage);
             match parsed {
                 udp::MessageType::NoMessage => {

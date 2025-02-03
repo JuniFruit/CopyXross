@@ -1,18 +1,99 @@
-mod protocol;
-use std::{
-    mem::{self, transmute},
-    net::{SocketAddr, UdpSocket},
-    slice::from_raw_parts,
-    sync::mpsc::Sender,
-};
+//! App communication protocol
+//!
+//! Provides necessary functions to ensure that messages between apps are
+//! correctly composed and read.
+//!
+//! Protocol is loosely based on IFF file type encoding.
+//!
+//! Each message consists of chunks and they are organized in certain order.
+//! Each chunk has 4-byte header, 4-byte length info and the data itself.
+//!
+//! Exmaple:
+//!
+//! <table>
+//!     <thead>
+//!         <tr>
+//!             <th>Offset</th>
+//!             <th>Len</th>
+//!             <th>Header</th>
+//!             <th>Example</th>
+//!         </tr>
+//!     </thead>
+//!     <tbody>
+//!         <tr>
+//!             <td>0</td>
+//!             <td>4</td>
+//!             <td>
+//!                 Header
+//!             </td>
+//!             <td>XCOP</td>
+//!         </tr>
+//!         <tr>
+//!             <td>4</td>
+//!             <td>4</td>
+//!             <td>
+//!                 Message (chunk) Length
+//!             </td>
+//!             <td>13</td>
+//!         </tr>
+//!         <tr>
+//!             <td>8</td>
+//!             <td>4</td>
+//!             <td>
+//!                 Header
+//!             </td>
+//!             <td>XVER</td>
+//!         </tr>
+//!         <tr>
+//!             <td>12</td>
+//!             <td>4</td>
+//!             <td>
+//!                 Len
+//!             </td>
+//!             <td>1</td>
+//!         </tr>
+//!         <tr>
+//!             <td>16</td>
+//!             <td>1</td>
+//!             <td>
+//!                 Version
+//!             </td>
+//!             <td>1</td>
+//!         </tr>
+//!         <tr>
+//!             <td>17</td>
+//!             <td>4</td>
+//!             <td>
+//!                 Header
+//!             </td>
+//!             <td>PING</td>
+//!         </tr>
+//!         <tr>
+//!             <td>21</td>
+//!             <td>4</td>
+//!             <td>
+//!                 Length
+//!             </td>
+//!             <td>0</td>
+//!         </tr>
+//!     </tbody>
+//! </table>
+//!
 
+mod protocol;
+
+use crate::utils::{any_as_u8_slice, convert_to_struct};
 use protocol::{
     encode_data, encode_header, encode_message_heading, read_data, read_header, read_size,
     EncodeError, ReaderOffset,
 };
 pub use protocol::{HeaderType, MessageType, ParseErrors, PeerData};
+use std::{
+    net::{SocketAddr, UdpSocket},
+    sync::mpsc::Sender,
+};
 
-use crate::utils::{any_as_u8_slice, convert_to_struct};
+pub type SocketMsg = (SocketAddr, Vec<u8>);
 
 pub fn parse_message(data: Vec<u8>) -> Result<MessageType, ParseErrors> {
     let mut reader = ReaderOffset { offset: 0 };
@@ -87,6 +168,7 @@ pub fn compose_message(message: MessageType, protocol_ver: u32) -> Result<Vec<u8
         }
         MessageType::NoMessage => {}
     }
+    let datagram: u8 = 2;
     // encode first part of the message
     encode_message_heading(protocol_ver, out.len(), &mut result)?;
     // append message
@@ -109,16 +191,16 @@ pub fn socket(listen_on: SocketAddr) -> std::io::Result<UdpSocket> {
     }
 }
 
-pub fn listen_to_socket(socket: &UdpSocket, sender: &Sender<Vec<u8>>) {
-    let mut buf: [u8; 1] = [0; 1];
+pub fn listen_to_socket(socket: &UdpSocket, sender: &Sender<SocketMsg>) {
+    let mut buf: [u8; 5024] = [0; 5024];
 
     loop {
         let result = socket.recv_from(&mut buf);
         match result {
             Ok((_amt, src)) => {
-                println!("Received data from {}", src);
+                println!("Received data from {}. Size: {}", src, _amt);
                 sender
-                    .send(Vec::<u8>::from(&buf[.._amt]))
+                    .send((src, Vec::<u8>::from(&buf[.._amt])))
                     .expect("Channel listener could not be reached!")
             }
             Err(err) => println!("Read error: {:?}", err),
@@ -136,20 +218,3 @@ pub fn send_message_to_socket(socket: &UdpSocket, target: SocketAddr, data: Vec<
         }
     }
 }
-
-// pub fn send_message(send_addr: SocketAddr, target: SocketAddr, data: Vec<u8>) {
-//     match socket(send_addr) {
-//         Ok(s) => {
-//             println!("Sending data");
-//             let result = s.send_to(&data, target);
-//             drop(s);
-//             match result {
-//                 Ok(amt) => println!("Sent {} bytes", amt),
-//                 Err(err) => println!("Write error: {:?}", err),
-//             }
-//         }
-//         Err(e) => {
-//             println!("Error sending message: {:?}", e)
-//         }
-//     }
-// }
