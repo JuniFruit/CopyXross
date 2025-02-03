@@ -1,14 +1,18 @@
 mod protocol;
 use std::{
+    mem::{self, transmute},
     net::{SocketAddr, UdpSocket},
+    slice::from_raw_parts,
     sync::mpsc::Sender,
 };
 
 use protocol::{
-    encode_data, encode_header, encode_message_heading, encode_size, read_data, read_header,
-    read_size, EncodeError, ReaderOffset,
+    encode_data, encode_header, encode_message_heading, read_data, read_header, read_size,
+    EncodeError, ReaderOffset,
 };
-pub use protocol::{HeaderType, MessageType, ParseErrors};
+pub use protocol::{HeaderType, MessageType, ParseErrors, PeerData};
+
+use crate::utils::{any_as_u8_slice, convert_to_struct};
 
 pub fn parse_message(data: Vec<u8>) -> Result<MessageType, ParseErrors> {
     let mut reader = ReaderOffset { offset: 0 };
@@ -33,10 +37,21 @@ pub fn parse_message(data: Vec<u8>) -> Result<MessageType, ParseErrors> {
                     ParseErrors::InvalidStructure
                 })?;
                 let ver = u32::from_be_bytes(data);
-                println!("Version: {:?}", ver)
+                println!("Version: {:?}", ver);
             }
-            HeaderType::Ping => return Ok(MessageType::Ping),
-            HeaderType::Pong => return Ok(MessageType::Pong),
+            HeaderType::Xacn => {
+                let data = data.as_slice();
+                let peer_d = unsafe { convert_to_struct::<PeerData>(data) };
+                return Ok(MessageType::Xacn(peer_d));
+            }
+            HeaderType::Xcon => {
+                let data = String::from_utf8(data).map_err(|err| {
+                    println!("Could not parse XACK data: {:?}", err);
+                    ParseErrors::InvalidStructure
+                })?;
+                let peer_d = PeerData { peer_name: data };
+                return Ok(MessageType::Xcon(peer_d));
+            }
             HeaderType::Xcpy => return Ok(MessageType::Xcpy),
             HeaderType::Xpst => return Ok(MessageType::Xpst(data)),
             HeaderType::Xcop => {
@@ -52,13 +67,15 @@ pub fn compose_message(message: MessageType, protocol_ver: u32) -> Result<Vec<u8
     let mut result: Vec<u8> = vec![];
     let mut out: Vec<u8> = vec![];
     match message {
-        MessageType::Ping => {
-            encode_header(HeaderType::Ping, &mut out)?;
-            encode_data(vec![], &mut out)?;
+        MessageType::Xcon(_data) => {
+            encode_header(HeaderType::Xcon, &mut out)?;
+            let bytes = unsafe { any_as_u8_slice(&_data) };
+            encode_data(bytes.to_vec(), &mut out)?;
         }
-        MessageType::Pong => {
-            encode_header(HeaderType::Pong, &mut out)?;
-            encode_data(vec![], &mut out)?;
+        MessageType::Xacn(_data) => {
+            encode_header(HeaderType::Xacn, &mut out)?;
+            let bytes = unsafe { any_as_u8_slice(&_data) };
+            encode_data(bytes.to_vec(), &mut out)?;
         }
         MessageType::Xcpy => {
             encode_header(HeaderType::Xcpy, &mut out)?;
@@ -136,4 +153,3 @@ pub fn send_message_to_socket(socket: &UdpSocket, target: SocketAddr, data: Vec<
 //         }
 //     }
 // }
-

@@ -86,9 +86,14 @@ const HEADER_SIZE: usize = 4;
 const LENGTH_SIZE: usize = 4;
 
 #[derive(Debug, PartialEq)]
+pub struct PeerData {
+    pub peer_name: String,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum MessageType {
-    Ping,
-    Pong,
+    Xacn(PeerData),
+    Xcon(PeerData),
     Xcpy,
     Xpst(Vec<u8>),
     NoMessage,
@@ -97,8 +102,8 @@ pub enum MessageType {
 pub enum HeaderType {
     Xver,
     Xcop,
-    Ping,
-    Pong,
+    Xacn,
+    Xcon,
     Xcpy,
     Xpst,
 }
@@ -110,8 +115,8 @@ impl FromStr for HeaderType {
         match input {
             "XCOP" => Ok(HeaderType::Xcop),
             "XVER" => Ok(HeaderType::Xver),
-            "PING" => Ok(HeaderType::Ping),
-            "PONG" => Ok(HeaderType::Pong),
+            "XACK" => Ok(HeaderType::Xacn),
+            "XCON" => Ok(HeaderType::Xcon),
             "XCPY" => Ok(HeaderType::Xcpy),
             "XPST" => Ok(HeaderType::Xpst),
             _ => Err(()),
@@ -123,8 +128,8 @@ impl ToString for HeaderType {
         match self {
             Self::Xver => String::from("XVER"),
             Self::Xcop => String::from("XCOP"),
-            Self::Pong => String::from("PONG"),
-            Self::Ping => String::from("PING"),
+            Self::Xacn => String::from("XACN"),
+            Self::Xcon => String::from("XCON"),
             Self::Xcpy => String::from("XCPY"),
             Self::Xpst => String::from("XPST"),
         }
@@ -190,7 +195,6 @@ pub fn read_data(
     size: usize,
 ) -> Result<Vec<u8>, ParseErrors> {
     check_offset_bounds(data, o.offset, size)?;
-    println!("Offset {}", o.offset);
     let read = data[o.offset..o.offset + size].to_vec();
 
     o.increase_by(size);
@@ -209,7 +213,6 @@ pub fn encode_size(size: usize, out: &mut Vec<u8>) -> Result<(), EncodeError> {
     }
     let size: u32 = size.try_into().unwrap();
     let chunk_len = u32::to_be_bytes(size);
-    println!("{:?}, {}", chunk_len, size);
     out.extend_from_slice(chunk_len.as_slice());
     Ok(())
 }
@@ -219,7 +222,6 @@ pub fn encode_message_heading(
     file_size: usize,
     out: &mut Vec<u8>,
 ) -> Result<(), EncodeError> {
-    println!("File size: {}", file_size);
     // encode first message header
     encode_header(HeaderType::Xcop, out)?;
     encode_size(file_size, out)?;

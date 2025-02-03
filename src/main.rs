@@ -1,4 +1,5 @@
 mod udp;
+mod utils;
 
 use local_ip_address::local_ip;
 use std::{
@@ -7,12 +8,13 @@ use std::{
     thread,
 };
 use udp::{compose_message, listen_to_socket, parse_message, send_message_to_socket, socket};
+use utils::Rand;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn main() {
     println!("Starting...");
-    println!("Scanning network");
+    println!("Scanning network...");
     let my_local_ip = local_ip().expect("Could not determine my ip");
     println!("This is my local IP address: {:?}", my_local_ip);
     let port = 53300;
@@ -35,14 +37,17 @@ fn main() {
             }
         } else {
             let data = res.unwrap();
-            println!("Parsing");
             let parsed = parse_message(data).unwrap_or(udp::MessageType::NoMessage);
             match parsed {
                 udp::MessageType::NoMessage => {
                     println!("Skipping message. Empty message received");
                 }
-                udp::MessageType::Ping => {}
-                udp::MessageType::Pong => {}
+                udp::MessageType::Xacn(_data) => {
+                    println!("Ack got: {:?}", _data);
+                }
+                udp::MessageType::Xcon(_data) => {
+                    println!("Connection got: {:?}", _data);
+                }
                 udp::MessageType::Xcpy => {}
                 udp::MessageType::Xpst(_data) => {}
             }
@@ -62,6 +67,7 @@ fn ping_apps_on_network(socket: &UdpSocket, subnet_ip: IpAddr, port: u16) {
         .map(|val| val.parse::<u8>().unwrap())
         .collect::<Vec<u8>>();
     let mut i: u8 = 0;
+    let mut randomizer = Rand::new(0);
 
     while i != u8::MAX {
         let candidate_addr = SocketAddr::new(
@@ -72,11 +78,17 @@ fn ping_apps_on_network(socket: &UdpSocket, subnet_ip: IpAddr, port: u16) {
         );
 
         println!("Pinging: {:?}", candidate_addr);
-        let ping_message = compose_message(udp::MessageType::Ping, 1)
-            .map_err(|err| {
-                println!("Failed to compose a message: {:?}", err);
-            })
-            .unwrap();
+        let rnd = randomizer.rand();
+        let ping_message = compose_message(
+            udp::MessageType::Xcon(udp::PeerData {
+                peer_name: format!("PC_num-{}", rnd),
+            }),
+            1,
+        )
+        .map_err(|err| {
+            println!("Failed to compose a message: {:?}", err);
+        })
+        .unwrap();
         send_message_to_socket(socket, candidate_addr, ping_message);
         i += 1;
         address[3] = i;
