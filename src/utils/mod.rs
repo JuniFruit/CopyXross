@@ -10,6 +10,7 @@ pub struct Rand {
     w: u32,
 }
 
+#[allow(dead_code)]
 impl Rand {
     pub fn new(seed: u32) -> Rand {
         Rand {
@@ -27,23 +28,17 @@ impl Rand {
         self.y = self.z;
         self.z = self.w;
         self.w ^= self.w.wrapping_shr(19) ^ t ^ t.wrapping_shr(8);
-        return self.w;
+        self.w
     }
 
     pub fn rand_range(&mut self, a: i32, b: i32) -> i32 {
         let m = (b - a + 1) as u32;
-        return a + (self.rand() % m) as i32;
+        a + (self.rand() % m) as i32
     }
 
     pub fn rand_float(&mut self) -> f64 {
-        (self.rand() as f64) / (<u32>::max_value() as f64)
+        (self.rand() as f64) / (<u32>::MAX as f64)
     }
 }
 
-pub unsafe fn convert_to_struct<T>(bytes: &[u8]) -> T {
-    std::ptr::read(bytes.as_ptr() as *const T)
-}
-
-pub unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
-    ::core::slice::from_raw_parts((p as *const T) as *const u8, ::core::mem::size_of::<T>())
-}
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;

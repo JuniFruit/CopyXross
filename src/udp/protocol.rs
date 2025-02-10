@@ -3,9 +3,58 @@ use std::str::FromStr;
 const HEADER_SIZE: usize = 4;
 const LENGTH_SIZE: usize = 4;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PeerData {
     pub peer_name: String,
+}
+
+impl PeerData {
+    pub fn serialize(&self) -> std::result::Result<Vec<u8>, EncodeError> {
+        // -24 for String struct, +8 for u64 string len
+        let str_len = self.peer_name.len();
+        let mut encoded: Vec<u8> = Vec::with_capacity((size_of::<Self>() - 24) + str_len + 8);
+
+        let str_len_u64: u64 = str_len
+            .try_into()
+            .map_err(|err| {
+                println!("Failed to serialize PeerData: {:?}", err);
+                EncodeError::Overflow
+            })
+            .unwrap();
+        encoded.extend(str_len_u64.to_be_bytes());
+        encoded.extend(self.peer_name.as_bytes());
+        Ok(encoded)
+    }
+    pub fn deserialize(data: &Vec<u8>) -> std::result::Result<Self, ParseErrors> {
+        check_offset_bounds(data, 0, 8)?;
+
+        let mut peer_data = PeerData {
+            peer_name: String::new(),
+        };
+
+        let slice: [u8; 8] = data[0..8].try_into().map_err(|err| {
+            println!("Error occurred while deserializing PeerData: {:?}", err);
+            ParseErrors::InvalidStructure
+        })?;
+        let str_len = u64::from_be_bytes(slice);
+        let str_len: usize = str_len
+            .try_into()
+            .map_err(|err| {
+                println!("Error occurred while deserializing PeerData: {:?}", err);
+                ParseErrors::InvalidStructure
+            })
+            .unwrap();
+        check_offset_bounds(data, 8, str_len)?;
+
+        let peer_name = String::from_utf8(data[8..str_len].to_vec()).map_err(|err| {
+            println!("Error occurred while deserializing PeerData: {:?}", err);
+            ParseErrors::InvalidStructure
+        })?;
+
+        peer_data.peer_name = peer_name;
+
+        Ok(peer_data)
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -33,7 +82,7 @@ impl FromStr for HeaderType {
         match input {
             "XCOP" => Ok(HeaderType::Xcop),
             "XVER" => Ok(HeaderType::Xver),
-            "XACK" => Ok(HeaderType::Xacn),
+            "XACN" => Ok(HeaderType::Xacn),
             "XCON" => Ok(HeaderType::Xcon),
             "XCPY" => Ok(HeaderType::Xcpy),
             "XPST" => Ok(HeaderType::Xpst),
@@ -53,16 +102,18 @@ impl ToString for HeaderType {
         }
     }
 }
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum ParseErrors {
     InvalidStructure,
     OutOfBounds,
-    UnknownHeader,
+    UnknownHeader(String),
 }
 
 #[derive(Debug)]
 pub enum EncodeError {
     TooBig,
+    Overflow,
 }
 
 pub struct ReaderOffset {
@@ -91,7 +142,7 @@ pub fn read_header(data: &Vec<u8>, o: &mut ReaderOffset) -> Result<HeaderType, P
             ParseErrors::InvalidStructure
         })?;
     o.increase_by(HEADER_SIZE);
-    Ok(HeaderType::from_str(&header).map_err(|_| ParseErrors::UnknownHeader))?
+    Ok(HeaderType::from_str(&header).map_err(|_| ParseErrors::UnknownHeader(header)))?
 }
 
 pub fn read_size(data: &Vec<u8>, o: &mut ReaderOffset) -> Result<usize, ParseErrors> {
@@ -119,7 +170,7 @@ pub fn read_data(
     Ok(read)
 }
 
-pub fn encode_data(data: Vec<u8>, out: &mut Vec<u8>) -> Result<(), EncodeError> {
+pub fn encode_data(data: &Vec<u8>, out: &mut Vec<u8>) -> Result<(), EncodeError> {
     encode_size(data.len(), out)?;
     out.extend(data);
     Ok(())
@@ -145,7 +196,7 @@ pub fn encode_message_heading(
     encode_size(file_size, out)?;
     // encode protocol version chunk
     encode_header(HeaderType::Xver, out)?;
-    encode_data(u32::to_be_bytes(protocol_ver).to_vec(), out)?;
+    encode_data(&u32::to_be_bytes(protocol_ver).to_vec(), out)?;
     Ok(())
 }
 
