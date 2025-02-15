@@ -1,16 +1,14 @@
-use std::ffi::CStr;
-
-use crate::debug_println;
-use crate::utils::Result as AnyResult;
-
 use super::Clipboard;
 use super::ClipboardData;
 use super::ClipboardError;
+use crate::debug_println;
+use crate::utils::Result as AnyResult;
 use objc::class;
 use objc::msg_send;
 use objc::runtime::Object;
 use objc::sel;
 use objc::sel_impl;
+use std::ffi::CStr;
 
 #[link(name = "AppKit", kind = "framework")]
 extern "C" {}
