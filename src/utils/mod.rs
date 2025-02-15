@@ -3,6 +3,9 @@ const KY: u32 = 362436069;
 const KZ: u32 = 521288629;
 const KW: u32 = 88675123;
 
+pub type Filename = String;
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
 pub struct Rand {
     x: u32,
     y: u32,
@@ -45,5 +48,3 @@ impl Rand {
         (self.rand() as f64) / (<u32>::MAX as f64)
     }
 }
-
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;

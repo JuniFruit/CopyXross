@@ -1,15 +1,22 @@
 use std::str::FromStr;
 
+use crate::{clipboard::ClipboardData, debug_println};
+
 const HEADER_SIZE: usize = 4;
 const LENGTH_SIZE: usize = 4;
+
+pub trait Transferable: Sized {
+    fn serialize(&self) -> std::result::Result<Vec<u8>, EncodeError>;
+    fn deserialize(data: &[u8]) -> std::result::Result<Self, ParseErrors>;
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeerData {
     pub peer_name: String,
 }
 
-impl PeerData {
-    pub fn serialize(&self) -> std::result::Result<Vec<u8>, EncodeError> {
+impl Transferable for PeerData {
+    fn serialize(&self) -> std::result::Result<Vec<u8>, EncodeError> {
         // -24 for String struct, +8 for u64 string len
         let str_len = self.peer_name.len();
         let mut encoded: Vec<u8> = Vec::with_capacity((size_of::<Self>() - 24) + str_len + 8);
@@ -25,7 +32,7 @@ impl PeerData {
         encoded.extend(self.peer_name.as_bytes());
         Ok(encoded)
     }
-    pub fn deserialize(data: &[u8]) -> std::result::Result<Self, ParseErrors> {
+    fn deserialize(data: &[u8]) -> std::result::Result<Self, ParseErrors> {
         check_offset_bounds(data, 0, 8)?;
 
         let mut peer_data = PeerData {
@@ -57,12 +64,89 @@ impl PeerData {
     }
 }
 
+impl Transferable for ClipboardData {
+    fn deserialize(data: &[u8]) -> std::result::Result<Self, ParseErrors> {
+        let mut o: ReaderOffset = ReaderOffset { offset: 0 };
+        let chunk_header = String::from_utf8(read_data(data, &mut o, 4)?).map_err(|err| {
+            ParseErrors::UnknownHeader(format!("Unable to deserialize Clipboard data: {:?}", err))
+        })?;
+
+        match chunk_header.as_str() {
+            "XSTR" => {
+                let len = read_size(data, &mut o)?;
+                let string_buff = read_data(data, &mut o, len)?;
+
+                Ok(ClipboardData::String(string_buff))
+            }
+            "XFIL" => {
+                let len = read_size(data, &mut o)?;
+                debug_println!("Reading file from clipboard. Length: {}", len);
+                let filename_header =
+                    String::from_utf8(read_data(data, &mut o, 4)?).map_err(|err| {
+                        println!("Failed to read filename header: {:?}", err);
+                        ParseErrors::InvalidStructure
+                    })?;
+
+                if filename_header != "XFME" {
+                    return Err(ParseErrors::UnknownHeader(String::from(
+                        "No filename chunk found",
+                    )));
+                }
+
+                let filename_size = read_size(data, &mut o)?;
+                let filename =
+                    String::from_utf8(read_data(data, &mut o, filename_size)?).map_err(|err| {
+                        println!("Failed to read filename string: {:?}", err);
+                        ParseErrors::InvalidStructure
+                    })?;
+                let file_len = read_size(data, &mut o)?;
+                let file_data = read_data(data, &mut o, file_len)?;
+
+                Ok(ClipboardData::File((filename, file_data)))
+            }
+            _ => Err(ParseErrors::UnknownHeader(format!(
+                "Invalid clipboard data header: {:?}",
+                chunk_header
+            ))),
+        }
+    }
+    fn serialize(&self) -> std::result::Result<Vec<u8>, EncodeError> {
+        match self {
+            ClipboardData::String(data) => {
+                let mut encoded: Vec<u8> = vec![];
+                // encode header
+                encode_data_raw("XSTR".as_bytes(), &mut encoded);
+                // encode size and string itself;
+                encode_data(data.as_slice(), &mut encoded)?;
+                Ok(encoded)
+            }
+            ClipboardData::File(file_data) => {
+                let mut encoded: Vec<u8> = vec![];
+                let (filename, data) = file_data;
+                // encode header
+                encode_data_raw("XFIL".as_bytes(), &mut encoded);
+                // encode size
+                // filename len + data + data len (4 bytes) + filename header(4 bytes) + filename len (4 bytes)
+                encode_size(filename.len() + data.len() + 4 + 4 + 4, &mut encoded)?;
+                // encode filename chunk
+                // header
+                encode_data_raw("XFME".as_bytes(), &mut encoded);
+                // filename chunk size and filename itself
+                encode_data(filename.as_bytes(), &mut encoded)?;
+                // file buffer
+                encode_data(data, &mut encoded)?;
+                Ok(encoded)
+            }
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum MessageType {
     Xacn(PeerData),
     Xcon(PeerData),
     Xcpy,
-    Xpst(Vec<u8>),
+    Xpst(ClipboardData),
     NoMessage,
 }
 #[derive(Debug, PartialEq)]
@@ -167,9 +251,13 @@ pub fn read_data(data: &[u8], o: &mut ReaderOffset, size: usize) -> Result<Vec<u
     Ok(read)
 }
 
-pub fn encode_data(data: &Vec<u8>, out: &mut Vec<u8>) -> Result<(), EncodeError> {
-    encode_size(data.len(), out)?;
+pub fn encode_data_raw(data: &[u8], out: &mut Vec<u8>) {
     out.extend(data);
+}
+
+pub fn encode_data(data: &[u8], out: &mut Vec<u8>) -> Result<(), EncodeError> {
+    encode_size(data.len(), out)?;
+    encode_data_raw(data, out);
     Ok(())
 }
 
@@ -193,7 +281,7 @@ pub fn encode_message_heading(
     encode_size(file_size, out)?;
     // encode protocol version chunk
     encode_header(HeaderType::Xver, out)?;
-    encode_data(&u32::to_be_bytes(protocol_ver).to_vec(), out)?;
+    encode_data(&u32::to_be_bytes(protocol_ver), out)?;
     Ok(())
 }
 

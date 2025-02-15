@@ -26,7 +26,6 @@ fn main() {
     let mut randomizer = Rand::new(0);
     let rnd = randomizer.rand();
     let cp = new_clipboard().unwrap();
-    cp.read();
 
     // getting my peer name
     let my_peer_name = format!("PC_num-{}", rnd);
@@ -74,8 +73,28 @@ fn main() {
                     connection_map.insert(ip_addr.ip(), _data);
                     send_message_to_socket(&socket, ip_addr, &ack_msg);
                 }
-                udp::MessageType::Xcpy => {}
-                udp::MessageType::Xpst(_data) => {}
+                udp::MessageType::Xcpy => {
+                    let cp_buffer_res = cp.read();
+                    if cp_buffer_res.is_err() {
+                        println!("{:?}", cp_buffer_res.unwrap_err());
+                        return;
+                    }
+                    let cp_buffer = cp_buffer_res.unwrap();
+                    let msg_type = MessageType::Xpst(cp_buffer);
+                    let message = compose_message(&msg_type, PROTOCOL_VER);
+                    if message.is_err() {
+                        println!("{:?}", message.unwrap_err());
+                        return;
+                    }
+                    send_message_to_socket(&socket, ip_addr, &message.unwrap());
+                }
+                udp::MessageType::Xpst(_data) => {
+                    let res = cp.write(_data);
+                    if res.is_err() {
+                        println!("{:?}", res.unwrap_err());
+                        return;
+                    }
+                }
             }
         }
     }

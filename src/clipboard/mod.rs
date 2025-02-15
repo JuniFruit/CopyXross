@@ -1,5 +1,6 @@
 mod macos;
 mod windows;
+use crate::utils::Filename;
 
 #[derive(Debug)]
 pub enum ClipboardError {
@@ -8,10 +9,10 @@ pub enum ClipboardError {
     Write(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ClipboardData {
     String(Vec<u8>),
-    File((String, Vec<u8>)),
+    File((Filename, Vec<u8>)),
 }
 
 pub trait Clipboard: Sized {

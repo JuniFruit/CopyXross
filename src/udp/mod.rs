@@ -82,12 +82,13 @@
 
 mod protocol;
 
-use crate::debug_println;
+use crate::{clipboard::ClipboardData, debug_println};
 use protocol::{
     encode_data, encode_header, encode_message_heading, read_data, read_header, read_size,
     EncodeError, ReaderOffset,
 };
-pub use protocol::{HeaderType, MessageType, ParseErrors, PeerData};
+
+pub use protocol::{HeaderType, MessageType, ParseErrors, PeerData, Transferable};
 use std::net::{SocketAddr, UdpSocket};
 
 pub fn parse_message(data: Vec<u8>) -> Result<MessageType, ParseErrors> {
@@ -124,7 +125,10 @@ pub fn parse_message(data: Vec<u8>) -> Result<MessageType, ParseErrors> {
                 return Ok(MessageType::Xcon(peer_d));
             }
             HeaderType::Xcpy => return Ok(MessageType::Xcpy),
-            HeaderType::Xpst => return Ok(MessageType::Xpst(data)),
+            HeaderType::Xpst => {
+                let decoded = ClipboardData::deserialize(data.as_slice())?;
+                return Ok(MessageType::Xpst(decoded));
+            }
             HeaderType::Xcop => {
                 // already handled
                 continue;
@@ -154,7 +158,8 @@ pub fn compose_message(message: &MessageType, protocol_ver: u32) -> Result<Vec<u
         }
         MessageType::Xpst(data) => {
             encode_header(HeaderType::Xpst, &mut out)?;
-            encode_data(data, &mut out)?;
+            let encoded = data.serialize()?;
+            encode_data(&encoded, &mut out)?;
         }
         MessageType::NoMessage => {}
     }
