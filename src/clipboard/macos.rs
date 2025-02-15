@@ -1,6 +1,7 @@
 use std::ffi::CStr;
 
 use crate::debug_println;
+use crate::utils::Result as AnyResult;
 
 use super::Clipboard;
 use super::ClipboardData;
@@ -28,7 +29,7 @@ impl Clipboard for MacosClipboard {
             res
         };
         if pb.is_null() {
-            return Err(ClipboardError::InitFailed(String::from(
+            return Err(ClipboardError::Init(String::from(
                 "General pasteboard is not returned. Pointer is null",
             )));
         }
@@ -44,14 +45,14 @@ impl Clipboard for MacosClipboard {
             // Get the first available type
             let types: *mut Object = msg_send![pb, types];
             if types.is_null() {
-                return Err(ClipboardError::ReadFailed(
+                return Err(ClipboardError::Read(
                     "Failed to get pasteboard types".to_string(),
                 ));
             }
 
             let first_type: *mut Object = msg_send![types, firstObject];
             if first_type.is_null() {
-                return Err(ClipboardError::ReadFailed("Clipboard is empty".to_string()));
+                return Err(ClipboardError::Read("Clipboard is empty".to_string()));
             }
 
             // Convert the type to a Rust string
@@ -63,7 +64,7 @@ impl Clipboard for MacosClipboard {
             if type_str == "public.utf8-plain-text" {
                 let ns_string: *mut Object = msg_send![pb, stringForType: first_type];
                 if ns_string.is_null() {
-                    return Err(ClipboardError::ReadFailed(
+                    return Err(ClipboardError::Read(
                         "Failed to read text from clipboard".to_string(),
                     ));
                 }
@@ -76,13 +77,16 @@ impl Clipboard for MacosClipboard {
             } else if type_str == "public.file-url" {
                 let ns_url: *mut Object = msg_send![pb, propertyListForType: first_type];
                 if ns_url.is_null() {
-                    return Err(ClipboardError::ReadFailed(
+                    return Err(ClipboardError::Read(
                         "Failed to read file URL from clipboard".to_string(),
                     ));
                 }
                 let utf8: *const i8 = msg_send![ns_url, UTF8String];
                 let c_str = CStr::from_ptr(utf8);
                 debug_println!("File: {}", c_str.to_string_lossy());
+                let file_buf = read_file(&c_str.to_string_lossy()).map_err(|err| {
+                    ClipboardError::Read(format!("Failed to read file from buffer: {:?}", err))
+                });
                 Ok(ClipboardData::String(
                     c_str.to_string_lossy().as_bytes().to_vec(),
                 ))
@@ -94,11 +98,19 @@ impl Clipboard for MacosClipboard {
                 debug_println!("Image format detected: {}", type_str);
                 Ok(ClipboardData::String(type_str.as_bytes().to_vec()))
             } else {
-                Err(ClipboardError::ReadFailed(format!(
+                Err(ClipboardError::Read(format!(
                     "Clipboard contains unsupported type: {}",
                     type_str
                 )))
             }
         }
     }
+}
+
+fn read_file(path: &str) -> AnyResult<Vec<u8>> {
+    todo!()
+}
+
+fn read_image() -> AnyResult<Vec<u8>> {
+    todo!()
 }

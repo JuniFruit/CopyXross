@@ -25,7 +25,7 @@ impl PeerData {
         encoded.extend(self.peer_name.as_bytes());
         Ok(encoded)
     }
-    pub fn deserialize(data: &Vec<u8>) -> std::result::Result<Self, ParseErrors> {
+    pub fn deserialize(data: &[u8]) -> std::result::Result<Self, ParseErrors> {
         check_offset_bounds(data, 0, 8)?;
 
         let mut peer_data = PeerData {
@@ -90,6 +90,7 @@ impl FromStr for HeaderType {
         }
     }
 }
+#[allow(clippy::to_string_trait_impl)]
 impl ToString for HeaderType {
     fn to_string(&self) -> String {
         match self {
@@ -126,7 +127,7 @@ impl ReaderOffset {
     }
 }
 
-fn check_offset_bounds(data: &Vec<u8>, offset: usize, size: usize) -> Result<(), ParseErrors> {
+fn check_offset_bounds(data: &[u8], offset: usize, size: usize) -> Result<(), ParseErrors> {
     if data.len() < offset + size {
         return Err(ParseErrors::OutOfBounds);
     }
@@ -134,7 +135,7 @@ fn check_offset_bounds(data: &Vec<u8>, offset: usize, size: usize) -> Result<(),
     Ok(())
 }
 
-pub fn read_header(data: &Vec<u8>, o: &mut ReaderOffset) -> Result<HeaderType, ParseErrors> {
+pub fn read_header(data: &[u8], o: &mut ReaderOffset) -> Result<HeaderType, ParseErrors> {
     check_offset_bounds(data, o.offset, HEADER_SIZE)?;
     let header: String = String::from_utf8(data[o.offset..o.offset + HEADER_SIZE].to_vec())
         .map_err(|err| {
@@ -145,7 +146,7 @@ pub fn read_header(data: &Vec<u8>, o: &mut ReaderOffset) -> Result<HeaderType, P
     Ok(HeaderType::from_str(&header).map_err(|_| ParseErrors::UnknownHeader(header)))?
 }
 
-pub fn read_size(data: &Vec<u8>, o: &mut ReaderOffset) -> Result<usize, ParseErrors> {
+pub fn read_size(data: &[u8], o: &mut ReaderOffset) -> Result<usize, ParseErrors> {
     check_offset_bounds(data, o.offset, LENGTH_SIZE)?;
     let slice: [u8; 4] = data[o.offset..o.offset + LENGTH_SIZE]
         .try_into()
@@ -158,11 +159,7 @@ pub fn read_size(data: &Vec<u8>, o: &mut ReaderOffset) -> Result<usize, ParseErr
     Ok(size as usize)
 }
 
-pub fn read_data(
-    data: &Vec<u8>,
-    o: &mut ReaderOffset,
-    size: usize,
-) -> Result<Vec<u8>, ParseErrors> {
+pub fn read_data(data: &[u8], o: &mut ReaderOffset, size: usize) -> Result<Vec<u8>, ParseErrors> {
     check_offset_bounds(data, o.offset, size)?;
     let read = data[o.offset..o.offset + size].to_vec();
 

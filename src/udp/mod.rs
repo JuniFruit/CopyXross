@@ -82,14 +82,13 @@
 
 mod protocol;
 
+use crate::debug_println;
 use protocol::{
     encode_data, encode_header, encode_message_heading, read_data, read_header, read_size,
     EncodeError, ReaderOffset,
 };
 pub use protocol::{HeaderType, MessageType, ParseErrors, PeerData};
 use std::net::{SocketAddr, UdpSocket};
-
-use crate::debug_println;
 
 pub fn parse_message(data: Vec<u8>) -> Result<MessageType, ParseErrors> {
     let mut reader = ReaderOffset { offset: 0 };
@@ -116,12 +115,12 @@ pub fn parse_message(data: Vec<u8>) -> Result<MessageType, ParseErrors> {
             }
             HeaderType::Xacn => {
                 let data = data.as_slice();
-                let peer_d = PeerData::deserialize(&data.to_vec())?;
+                let peer_d = PeerData::deserialize(data)?;
                 return Ok(MessageType::Xacn(peer_d));
             }
             HeaderType::Xcon => {
                 let data = data.as_slice();
-                let peer_d = PeerData::deserialize(&data.to_vec())?;
+                let peer_d = PeerData::deserialize(data)?;
                 return Ok(MessageType::Xcon(peer_d));
             }
             HeaderType::Xcpy => return Ok(MessageType::Xcpy),
@@ -200,7 +199,7 @@ pub fn listen_to_socket(socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
     }
 }
 
-pub fn send_message_to_socket(socket: &UdpSocket, target: SocketAddr, data: &Vec<u8>) {
+pub fn send_message_to_socket(socket: &UdpSocket, target: SocketAddr, data: &[u8]) {
     match socket.send_to(data, target) {
         Ok(amt) => {
             debug_println!("Sent packet size {} bytes", amt);

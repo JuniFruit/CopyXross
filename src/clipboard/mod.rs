@@ -3,15 +3,15 @@ mod windows;
 
 #[derive(Debug)]
 pub enum ClipboardError {
-    InitFailed(String),
-    ReadFailed(String),
-    WriteFailed(String),
+    Init(String),
+    Read(String),
+    Write(String),
 }
 
 #[derive(Debug)]
 pub enum ClipboardData {
     String(Vec<u8>),
-    File(Vec<u8>),
+    File((String, Vec<u8>)),
 }
 
 pub trait Clipboard: Sized {

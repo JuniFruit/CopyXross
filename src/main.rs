@@ -81,7 +81,7 @@ fn main() {
     }
 }
 
-fn ping_apps_on_network(socket: &UdpSocket, subnet_ip: IpAddr, message: &Vec<u8>, port: u16) {
+fn ping_apps_on_network(socket: &UdpSocket, subnet_ip: IpAddr, message: &[u8], port: u16) {
     let address_str = subnet_ip.to_string();
     let mut address = address_str
         .split(".")
