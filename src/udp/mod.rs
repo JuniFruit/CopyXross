@@ -89,14 +89,14 @@ use protocol::{
 pub use protocol::{HeaderType, MessageType, ParseErrors, PeerData};
 use std::net::{SocketAddr, UdpSocket};
 
-pub type SocketMsg = (SocketAddr, Vec<u8>);
+use crate::debug_println;
 
 pub fn parse_message(data: Vec<u8>) -> Result<MessageType, ParseErrors> {
     let mut reader = ReaderOffset { offset: 0 };
     let file_header = read_header(&data, &mut reader)?;
     let file_size = read_size(&data, &mut reader)?;
 
-    println!("Reading message. Size: {:?}", file_size);
+    debug_println!("Reading message. Size: {:?}", file_size);
 
     if file_header != HeaderType::Xcop {
         return Err(ParseErrors::InvalidStructure);
@@ -187,14 +187,14 @@ pub fn listen_to_socket(socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
     let result = socket.recv_from(&mut buf);
     match result {
         Ok((_amt, src)) => {
-            println!("Received data from {}. Size: {}", src, _amt);
+            debug_println!("Received data from {}. Size: {}", src, _amt);
             if _amt < 1 {
                 return None;
             }
             Some((src, Vec::<u8>::from(&buf[.._amt])))
         }
         Err(err) => {
-            println!("Read error: {:?}", err);
+            debug_println!("Read error: {:?}", err);
             None
         }
     }
@@ -203,10 +203,10 @@ pub fn listen_to_socket(socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
 pub fn send_message_to_socket(socket: &UdpSocket, target: SocketAddr, data: &Vec<u8>) {
     match socket.send_to(data, target) {
         Ok(amt) => {
-            println!("Sent packet size {} bytes", amt);
+            debug_println!("Sent packet size {} bytes", amt);
         }
         Err(e) => {
-            println!("Error sending message: {:?}", e)
+            debug_println!("Error sending message: {:?}", e)
         }
     }
 }

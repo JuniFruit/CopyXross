@@ -1,6 +1,8 @@
+mod clipboard;
 mod udp;
 mod utils;
 
+use clipboard::{new_clipboard, Clipboard};
 use local_ip_address::local_ip;
 use std::{
     collections::HashMap,
@@ -23,6 +25,9 @@ fn main() {
     let mut connection_map: HashMap<IpAddr, PeerData> = HashMap::new();
     let mut randomizer = Rand::new(0);
     let rnd = randomizer.rand();
+    let cp = new_clipboard().unwrap();
+    cp.read();
+
     // getting my peer name
     let my_peer_name = format!("PC_num-{}", rnd);
     let my_peer_data = udp::PeerData {

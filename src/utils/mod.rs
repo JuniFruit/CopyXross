@@ -10,6 +10,11 @@ pub struct Rand {
     w: u32,
 }
 
+#[macro_export]
+macro_rules! debug_println {
+    ($($arg:tt)*) => (if ::std::cfg!(debug_assertions) { ::std::println!($($arg)*); })
+}
+
 #[allow(dead_code)]
 impl Rand {
     pub fn new(seed: u32) -> Rand {
