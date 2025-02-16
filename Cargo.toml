@@ -5,6 +5,12 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2.7"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.59" }
+
+
 [dependencies]
 local-ip-address = "0.6.3"
-objc = "0.2.7"

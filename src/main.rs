@@ -76,23 +76,22 @@ fn main() {
                 udp::MessageType::Xcpy => {
                     let cp_buffer_res = cp.read();
                     if cp_buffer_res.is_err() {
-                        println!("{:?}", cp_buffer_res.unwrap_err());
-                        return;
+                        println!("CLIPBOARD ERR: {:?}", cp_buffer_res.unwrap_err());
+                    } else {
+                        let cp_buffer = cp_buffer_res.unwrap();
+                        let msg_type = MessageType::Xpst(cp_buffer);
+                        let message = compose_message(&msg_type, PROTOCOL_VER);
+                        if message.is_err() {
+                            println!("ENCODE ERR: {:?}", message.unwrap_err());
+                        } else {
+                            send_message_to_socket(&socket, ip_addr, &message.unwrap());
+                        }
                     }
-                    let cp_buffer = cp_buffer_res.unwrap();
-                    let msg_type = MessageType::Xpst(cp_buffer);
-                    let message = compose_message(&msg_type, PROTOCOL_VER);
-                    if message.is_err() {
-                        println!("{:?}", message.unwrap_err());
-                        return;
-                    }
-                    send_message_to_socket(&socket, ip_addr, &message.unwrap());
                 }
                 udp::MessageType::Xpst(_data) => {
                     let res = cp.write(_data);
                     if res.is_err() {
-                        println!("{:?}", res.unwrap_err());
-                        return;
+                        println!("CLIPBOARD ERR: {:?}", res.unwrap_err());
                     }
                 }
             }

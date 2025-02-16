@@ -10,6 +10,7 @@ use objc::sel;
 use objc::sel_impl;
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::fs;
 
 #[link(name = "AppKit", kind = "framework")]
 extern "C" {}
@@ -23,7 +24,9 @@ pub struct MacosClipboard {
 #[allow(unexpected_cfgs)]
 impl MacosClipboard {
     fn read_file(&self, path: &str) -> AnyResult<Vec<u8>> {
-        todo!()
+        let file = fs::read(path)?;
+
+        Ok(file)
     }
 
     fn read_image(&self, first_type: *mut Object) -> Result<Vec<u8>, ClipboardError> {
@@ -131,8 +134,15 @@ impl Clipboard for MacosClipboard {
                         ));
                     }
 
+                    let c_public_text_type =
+                        CString::new("public.utf8-plain-text").map_err(|err| {
+                            ClipboardError::Write(format!(
+                                "Failed to create public text type C string: {:?}",
+                                err
+                            ))
+                        })?;
                     // Define the public text type
-                    let utf8_type: *mut Object = msg_send![class!(NSString), stringWithUTF8String: "public.utf8-plain-text\0".as_ptr()];
+                    let utf8_type: *mut Object = msg_send![class!(NSString), stringWithUTF8String: c_public_text_type.as_ptr()];
 
                     // Clear clipboard before writing
                     let _: () = msg_send![pb, clearContents];
