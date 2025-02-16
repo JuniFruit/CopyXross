@@ -1,7 +1,17 @@
+use std::ffi::OsString;
+
+use crate::debug_println;
+
 use super::{Clipboard, ClipboardData, ClipboardError};
+use winapi::shared::minwindef::UINT;
 use winapi::shared::ntdef::{FALSE, NULL};
 use winapi::shared::windef::HWND__;
-use winapi::um::winuser::{CloseClipboard, EnumClipboardFormats, OpenClipboard};
+use winapi::um::errhandlingapi::GetLastError;
+use winapi::um::winnt::HANDLE;
+use winapi::um::winuser::{
+    CloseClipboard, EnumClipboardFormats, GetClipboardData, IsClipboardFormatAvailable,
+    OpenClipboard, CF_DIB, CF_HDROP, CF_OEMTEXT, CF_TEXT, CF_UNICODETEXT,
+};
 
 pub struct WindowsClipboard;
 
@@ -27,16 +37,48 @@ impl WindowsClipboard {
             Ok(())
         }
     }
+    fn get_clipboard_data_handle(clipboard_type: UINT) -> Result<HANDLE, ClipboardError> {
+        unsafe {
+            let handle: HANDLE = GetClipboardData(clipboard_type);
+            if handle.is_null() {
+                let last_err = GetLastError();
+                return Err(ClipboardError::Read(format!(
+                    "Failed to get clipboard data. Err: {}",
+                    last_err
+                )));
+            }
+            Ok(handle)
+        }
+    }
 
     fn read_text() -> Result<ClipboardData, ClipboardError> {
-        todo!()
+        unsafe {
+            if IsClipboardFormatAvailable(CF_UNICODETEXT) == FALSE.into() {
+                return Err(ClipboardError::Read(
+                    "Clipboard does not contain text".to_string(),
+                ));
+            }
+
+            let handle: HANDLE = WindowsClipboard::get_clipboard_data_handle(CF_UNICODETEXT)?;
+
+            let text_ptr: *const u16 = handle as *const u16;
+            let mut len = 0;
+            while *text_ptr.add(len) != 0 {
+                len += 1;
+            }
+            let slice = std::slice::from_raw_parts(text_ptr, len);
+
+            debug_println!("Text: {}", String::from_utf16_lossy(slice));
+
+            Ok(ClipboardData::String(vec![]))
+        }
     }
 
     fn read_file() -> Result<ClipboardData, ClipboardError> {
         todo!()
     }
 }
-
+#[allow(non_snake_case)]
 impl Clipboard for WindowsClipboard {
     fn init() -> Result<Self, ClipboardError> {
         Ok(WindowsClipboard)
@@ -70,6 +112,8 @@ impl Clipboard for WindowsClipboard {
             // Handle different clipboard formats
             let result = match latest_format {
                 CF_UNICODETEXT => Self::read_text(),
+                CF_OEMTEXT => Self::read_text(),
+                CF_TEXT => Self::read_text(),
                 CF_HDROP => Self::read_file(),
                 CF_DIB => Err(ClipboardError::Read(
                     "Clipboard contains an image (DIB)".to_string(),
