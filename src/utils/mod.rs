@@ -48,3 +48,19 @@ impl Rand {
         (self.rand() as f64) / (<u32>::MAX as f64)
     }
 }
+
+// pub fn from_u8_to_u16(bytes: &[u8]) -> std::result::Result<Vec<u16>, ParseErrors> {
+//     unsafe {
+//         let my_u16_vec_bis: Vec<u16> = (bytes.align_to::<u16>().1)
+//             .to_vec()
+//             .iter()
+//             .map(|e| e >> 8 | (e & 0xff) << 8)
+//             .collect();
+//
+//         if my_u16_vec_bis.len() != bytes.len() / 2 {
+//             return Err(ParseErrors::InvalidStructure);
+//         }
+//
+//         Ok(my_u16_vec_bis)
+//     }
+// }
