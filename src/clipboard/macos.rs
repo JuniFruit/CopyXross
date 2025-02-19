@@ -2,7 +2,9 @@ use super::Clipboard;
 use super::ClipboardData;
 use super::ClipboardError;
 use crate::debug_println;
-use crate::utils::Result as AnyResult;
+use crate::utils::create_file;
+use crate::utils::open_file;
+use dirs_next::desktop_dir;
 use objc::class;
 use objc::msg_send;
 use objc::rc::autoreleasepool;
@@ -11,7 +13,6 @@ use objc::sel;
 use objc::sel_impl;
 use std::ffi::CStr;
 use std::ffi::CString;
-use std::fs;
 use std::ptr;
 use std::str::FromStr;
 
@@ -27,6 +28,8 @@ extern "C" {}
 
 type ObjectId = *mut Object;
 type NSData = ObjectId;
+type NSType = ObjectId;
+
 #[allow(non_upper_case_globals, dead_code)]
 const NSUTF16Encoding: i32 = 10;
 #[allow(non_upper_case_globals, dead_code)]
@@ -81,11 +84,6 @@ pub struct MacosClipboard {
 
 #[allow(unexpected_cfgs)]
 impl MacosClipboard {
-    fn open_file(&self, path: &str) -> AnyResult<Vec<u8>> {
-        let file = fs::read(path)?;
-
-        Ok(file)
-    }
     fn read_file(&self, first_type: *mut Object) -> Result<ClipboardData, ClipboardError> {
         let pb = self.p;
         autoreleasepool(|| unsafe {
@@ -101,7 +99,8 @@ impl MacosClipboard {
             if c_str.ends_with("/") {
                 return Err(ClipboardError::Read(String::from("Cannot copy folders")));
             }
-            let file_buf = self.open_file(&c_str).map_err(|err| {
+            // slice file:// part
+            let file_buf = open_file(&c_str[7..]).map_err(|err| {
                 ClipboardError::Read(format!("Failed to read file from buffer: {:?}", err))
             })?;
             let filename = c_str.split("/").last().unwrap_or("unknown_file");
@@ -144,10 +143,10 @@ impl MacosClipboard {
         }
     }
 
-    fn read_u8_str(&self, first_type: ObjectId) -> Result<ClipboardData, ClipboardError> {
+    fn read_u8_str(&self, t: ObjectId) -> Result<ClipboardData, ClipboardError> {
         let pb = self.p;
         unsafe {
-            let ns_string: *mut Object = msg_send![pb, stringForType: first_type];
+            let ns_string: ObjectId = msg_send![pb, stringForType: t];
             self.convert_plain_string(ns_string)
         }
     }
@@ -164,9 +163,9 @@ impl MacosClipboard {
                 }
 
                 // Convert NSData (RTF) to NSAttributedString
-                let attributed_string: *mut Object = msg_send![class!(NSAttributedString), alloc];
-                let mut document_attributes: *mut Object = ptr::null_mut();
-                let attributed_string: *mut Object = msg_send![attributed_string,
+                let attributed_string: ObjectId = msg_send![class!(NSAttributedString), alloc];
+                let mut document_attributes: ObjectId = ptr::null_mut();
+                let attributed_string: ObjectId = msg_send![attributed_string,
                     initWithData:data options:ptr::null::<u8>()
                     documentAttributes:&mut document_attributes error:ptr::null::<u8>()
                 ];
@@ -192,16 +191,16 @@ impl MacosClipboard {
         autoreleasepool(|| {
             unsafe {
                 // Get NSString from Pasteboard
-                let ns_string: *mut Object = msg_send![self.p, stringForType: first_type];
+                let ns_string: ObjectId = msg_send![self.p, stringForType: first_type];
                 self.convert_plain_string(ns_string)
             }
         })
     }
-    fn read_image(&self, first_type: *mut Object) -> Result<Vec<u8>, ClipboardError> {
+    fn read_image(&self, first_type: ObjectId) -> Result<Vec<u8>, ClipboardError> {
         let pb = self.p;
         autoreleasepool(|| {
             unsafe {
-                let ns_data: *mut Object = msg_send![pb, dataForType: first_type];
+                let ns_data: ObjectId = msg_send![pb, dataForType: first_type];
                 if ns_data.is_null() {
                     return Err(ClipboardError::Read(
                         "Failed to read binary data from clipboard".to_string(),
@@ -246,49 +245,29 @@ impl MacosClipboard {
     }
 
     fn write_file(&self, file_data: (String, Vec<u8>)) -> Result<(), ClipboardError> {
-        let pb = self.p;
-        autoreleasepool(|| {
-            unsafe {
-                let (filename, data) = file_data;
-                let mime_type_opt = filename.split(".").last();
-                if mime_type_opt.is_none() {
-                    return Err(ClipboardError::Write(
-                        "Failed to write bytes into clipboard. Unknown mime_type".to_string(),
-                    ));
-                }
-                let mime_type = mime_type_opt.unwrap();
-                // Convert Rust byte slice to NSData
-                let ns_data: *mut Object =
-                    msg_send![class!(NSData), dataWithBytes: data.as_ptr() length: data.len()];
-                if ns_data.is_null() {
-                    return Err(ClipboardError::Write("Failed to create NSData".to_string()));
-                }
+        let (filename, data) = file_data;
+        let mime_type_opt = filename.split(".").last();
+        if mime_type_opt.is_none() {
+            return Err(ClipboardError::Write(
+                "Failed to write bytes into clipboard. Unknown mime_type".to_string(),
+            ));
+        }
 
-                // Convert MIME type to NSString
-                let c_type = CString::new(mime_type).unwrap();
-                let ns_type: *mut Object =
-                    msg_send![class!(NSString), stringWithUTF8String: c_type.as_ptr()];
-                if ns_type.is_null() {
-                    return Err(ClipboardError::Write(
-                        "Failed to create NSString for MIME type".to_string(),
-                    ));
-                }
+        let deskt_dir = desktop_dir();
+        if deskt_dir.is_none() {
+            return Err(ClipboardError::Write(
+                "Could not find Desktop directory".to_string(),
+            ));
+        }
 
-                // Clear clipboard
-                let _: () = msg_send![pb, clearContents];
+        let mut deskt_dir = deskt_dir.unwrap();
+        deskt_dir.push(&filename);
 
-                // Store binary data into clipboard
-                let success: bool = msg_send![pb, setData: ns_data forType: ns_type];
-                if !success {
-                    return Err(ClipboardError::Write(
-                        "Failed to write binary data to clipboard".to_string(),
-                    ));
-                }
+        create_file(data.as_slice(), deskt_dir.to_str().unwrap_or(""))
+            .map_err(|err| ClipboardError::Write(format!("Could not write file: {:?}", err)))?;
 
-                debug_println!("Binary data written to clipboard as {}", mime_type);
-                Ok(())
-            }
-        })
+        debug_println!("Binary data written as {}", mime_type_opt.unwrap());
+        Ok(())
     }
     fn write_text(&self, text: &[u8]) -> Result<(), ClipboardError> {
         autoreleasepool(|| {
@@ -301,7 +280,7 @@ impl MacosClipboard {
                 })?;
                 // Convert Rust `&str` to `NSString`
                 let c_text = CString::new(text.as_str()).unwrap();
-                let ns_string: *mut Object =
+                let ns_string: ObjectId =
                     msg_send![class!(NSString), stringWithUTF8String: c_text.as_ptr()];
 
                 if ns_string.is_null() {
@@ -332,7 +311,7 @@ impl MacosClipboard {
         let pb = self.p;
         unsafe {
             // Define the public text type
-            let utf8_type: *mut Object =
+            let utf8_type: ObjectId =
                 msg_send![class!(NSString), stringWithUTF8String: c_public_text_type.as_ptr()];
 
             // Clear clipboard before writing
@@ -347,6 +326,36 @@ impl MacosClipboard {
                 ));
             }
             Ok(())
+        }
+    }
+    fn get_clipboard_type(&self) -> Result<(PasteboardType, NSType, String), ClipboardError> {
+        unsafe {
+            autoreleasepool(|| {
+                // Get all available types
+                let types: ObjectId = msg_send![self.p, types];
+
+                let count: usize = msg_send![types, count];
+
+                for i in 0..count {
+                    let ns_type: ObjectId = msg_send![types, objectAtIndex: i];
+                    let utf8_cstr: *const i8 = msg_send![ns_type, UTF8String];
+                    if !utf8_cstr.is_null() {
+                        let type_str = CStr::from_ptr(utf8_cstr).to_string_lossy().into_owned();
+                        let pb_type = PasteboardType::from_str(type_str.as_str());
+
+                        match pb_type {
+                            Err(_) => continue,
+                            _ => {
+                                return Ok((pb_type.unwrap(), ns_type, type_str));
+                            }
+                        }
+                    }
+                }
+
+                Err(ClipboardError::Read(
+                    "Could not find known types".to_string(),
+                ))
+            })
         }
     }
 }
@@ -380,46 +389,17 @@ impl Clipboard for MacosClipboard {
                 let pb = self.p;
 
                 // Get the first available type
-                let types: *mut Object = msg_send![pb, types];
+                let types: ObjectId = msg_send![pb, types];
                 if types.is_null() {
                     return Err(ClipboardError::Read(
                         "Failed to get pasteboard types".to_string(),
                     ));
                 }
 
-                let count: usize = msg_send![types, count];
-
-                println!("Pasteboard contains {} types:", count);
-
-                for i in 0..count {
-                    let type_str: *mut Object = msg_send![types, objectAtIndex: i];
-                    if type_str.is_null() {
-                        continue;
-                    }
-
-                    // Convert NSString to UTF-8 Rust string
-                    let utf8_cstr: *const i8 = msg_send![type_str, UTF8String];
-                    if utf8_cstr.is_null() {
-                        continue;
-                    }
-
-                    let rust_str = CStr::from_ptr(utf8_cstr).to_string_lossy();
-                    println!("  - {}", rust_str);
-                }
-
-                let first_type: *mut Object = msg_send![types, firstObject];
+                let (p_type, first_type, type_str) = self.get_clipboard_type()?;
                 if first_type.is_null() {
                     return Err(ClipboardError::Read("Clipboard is empty".to_string()));
                 }
-
-                // Convert the type to a Rust string
-                let type_utf8: *const i8 = msg_send![first_type, UTF8String];
-                let type_cstr = CStr::from_ptr(type_utf8);
-                let type_str = type_cstr.to_string_lossy().into_owned();
-
-                let p_type = PasteboardType::from_str(&type_str).map_err(|err| {
-                    ClipboardError::Read(format!("Unknown pasteboard type: {:?}", err))
-                })?;
 
                 debug_println!("Pasteboard type: {:?}", type_str);
 

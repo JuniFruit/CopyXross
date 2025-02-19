@@ -1,3 +1,5 @@
+use std::{fs, path::PathBuf};
+
 const KX: u32 = 123456789;
 const KY: u32 = 362436069;
 const KZ: u32 = 521288629;
@@ -47,6 +49,17 @@ impl Rand {
     pub fn rand_float(&mut self) -> f64 {
         (self.rand() as f64) / (<u32>::MAX as f64)
     }
+}
+
+pub fn open_file(path: &str) -> Result<Vec<u8>> {
+    let file = fs::read(path)?;
+
+    Ok(file)
+}
+
+pub fn create_file(file: &[u8], path: &str) -> Result<()> {
+    fs::write(path, file)?;
+    Ok(())
 }
 
 // pub fn from_u8_to_u16(bytes: &[u8]) -> std::result::Result<Vec<u16>, ParseErrors> {
