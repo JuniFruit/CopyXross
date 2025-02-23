@@ -3,14 +3,14 @@ use std::str::FromStr;
 use crate::clipboard::ClipboardData;
 use crate::clipboard::StringType;
 use crate::debug_println;
-use crate::udp::protocol::read_header_expected;
-use crate::udp::protocol::read_size;
-use crate::udp::protocol::EncodeError;
 
 use super::protocol::check_offset_bounds;
 use super::protocol::encode_chunks;
 use super::protocol::read_data;
+use super::protocol::read_header_expected;
+use super::protocol::read_size;
 use super::protocol::Chunk;
+use super::protocol::EncodeError;
 use super::protocol::ReaderOffset;
 use super::ParseErrors;
 use super::PeerData;

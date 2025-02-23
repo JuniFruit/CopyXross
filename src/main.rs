@@ -1,20 +1,19 @@
 mod clipboard;
-mod udp;
+mod encode;
+mod network;
 mod utils;
 
 use clipboard::{new_clipboard, Clipboard};
+use encode::{compose_message, parse_message, MessageType, PeerData};
 use local_ip_address::local_ip;
+use network::{
+    listen_to_socket, ping_apps_on_network, send_message_to_socket, socket, PROTOCOL_VER,
+};
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
 };
-use udp::{
-    compose_message, listen_to_socket, parse_message, send_message_to_socket, socket, MessageType,
-    PeerData,
-};
 use utils::Rand;
-
-const PROTOCOL_VER: u32 = 1;
 
 fn main() {
     println!("Starting...");
@@ -29,7 +28,7 @@ fn main() {
 
     // getting my peer name
     let my_peer_name = format!("PC_num-{}", rnd);
-    let my_peer_data = udp::PeerData {
+    let my_peer_data = encode::PeerData {
         peer_name: my_peer_name,
     };
     // creating greeting message to send to all peers
@@ -50,74 +49,62 @@ fn main() {
     let socket = socket(bind).unwrap();
     // discover peers on the network
     ping_apps_on_network(&socket, my_local_ip.to_canonical(), &greeting_message, port);
+    // debug_send(&socket, &cp);
 
     // main listener loop
     loop {
         let res = listen_to_socket(&socket);
-        if res.is_some() {
-            let (ip_addr, data) = res.unwrap();
-            let parsed = parse_message(data).unwrap_or_else(|err| {
-                println!("Parsing error: {:?}", err);
-                MessageType::NoMessage
-            });
-            match parsed {
-                udp::MessageType::NoMessage => {
-                    println!("Skipping message. Empty message received");
-                }
-                udp::MessageType::Xacn(_data) => {
-                    println!("Ack got: {:?}", _data);
-                    connection_map.insert(ip_addr.ip(), _data);
-                }
-                udp::MessageType::Xcon(_data) => {
-                    println!("Connection got: {:?}", _data);
-                    connection_map.insert(ip_addr.ip(), _data);
-                    send_message_to_socket(&socket, ip_addr, &ack_msg);
-                }
-                udp::MessageType::Xcpy => {
-                    let cp_buffer_res = cp.read();
-                    if cp_buffer_res.is_err() {
-                        println!("CLIPBOARD ERR: {:?}", cp_buffer_res.unwrap_err());
-                    } else {
-                        let cp_buffer = cp_buffer_res.unwrap();
-                        let msg_type = MessageType::Xpst(cp_buffer);
-                        let message = compose_message(&msg_type, PROTOCOL_VER);
-                        if message.is_err() {
-                            println!("ENCODE ERR: {:?}", message.unwrap_err());
-                        } else {
-                            send_message_to_socket(&socket, ip_addr, &message.unwrap());
-                        }
-                    }
-                }
-                udp::MessageType::Xpst(_data) => {
-                    let res = cp.write(_data);
-                    if res.is_err() {
-                        println!("CLIPBOARD ERR: {:?}", res.unwrap_err());
-                    }
-                }
-            }
-        }
+        process_message(res, &mut connection_map, &ack_msg, &cp, &socket);
     }
 }
 
-fn ping_apps_on_network(socket: &UdpSocket, subnet_ip: IpAddr, message: &[u8], port: u16) {
-    let address_str = subnet_ip.to_string();
-    let mut address = address_str
-        .split(".")
-        .map(|val| val.parse::<u8>().unwrap())
-        .collect::<Vec<u8>>();
-    let mut i: u8 = 0;
-    while i != u8::MAX {
-        let candidate_ip = IpAddr::V4(Ipv4Addr::new(
-            address[0], address[1], address[2], address[3],
-        ));
-
-        let candidate_addr = SocketAddr::new(candidate_ip, port);
-        // if candidate_ip == subnet_ip {
-        //     continue;
-        // }
-
-        send_message_to_socket(socket, candidate_addr, message);
-        i += 1;
-        address[3] = i
+pub fn process_message(
+    res: Option<(SocketAddr, Vec<u8>)>,
+    connection_map: &mut HashMap<IpAddr, PeerData>,
+    ack_msg: &[u8],
+    cp: &impl Clipboard,
+    socket: &UdpSocket,
+) {
+    if res.is_some() {
+        let (ip_addr, data) = res.unwrap();
+        let parsed = parse_message(data).unwrap_or_else(|err| {
+            println!("Parsing error: {:?}", err);
+            MessageType::NoMessage
+        });
+        match parsed {
+            encode::MessageType::NoMessage => {
+                println!("Skipping message. Empty message received");
+            }
+            encode::MessageType::Xacn(_data) => {
+                println!("Ack got: {:?}", _data);
+                connection_map.insert(ip_addr.ip(), _data);
+            }
+            encode::MessageType::Xcon(_data) => {
+                println!("Connection got: {:?}", _data);
+                connection_map.insert(ip_addr.ip(), _data);
+                send_message_to_socket(socket, ip_addr, ack_msg);
+            }
+            encode::MessageType::Xcpy => {
+                let cp_buffer_res = cp.read();
+                if cp_buffer_res.is_err() {
+                    println!("CLIPBOARD ERR: {:?}", cp_buffer_res.unwrap_err());
+                } else {
+                    let cp_buffer = cp_buffer_res.unwrap();
+                    let msg_type = MessageType::Xpst(cp_buffer);
+                    let message = compose_message(&msg_type, PROTOCOL_VER);
+                    if message.is_err() {
+                        println!("ENCODE ERR: {:?}", message.unwrap_err());
+                    } else {
+                        send_message_to_socket(socket, ip_addr, &message.unwrap());
+                    }
+                }
+            }
+            encode::MessageType::Xpst(_data) => {
+                let res = cp.write(_data);
+                if res.is_err() {
+                    println!("CLIPBOARD ERR: {:?}", res.unwrap_err());
+                }
+            }
+        }
     }
 }
