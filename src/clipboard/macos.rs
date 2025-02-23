@@ -1,6 +1,7 @@
 use super::Clipboard;
 use super::ClipboardData;
 use super::ClipboardError;
+use super::StringType;
 use crate::debug_println;
 use crate::utils::create_file;
 use crate::utils::open_file;
@@ -13,7 +14,6 @@ use objc::sel;
 use objc::sel_impl;
 use std::ffi::CStr;
 use std::ffi::CString;
-use std::ptr;
 use std::str::FromStr;
 
 #[link(name = "AppKit", kind = "framework")]
@@ -40,8 +40,7 @@ enum PasteboardType {
     FILEPATH,
     IMAGE,
     TEXT,
-    TEXTU16,
-    RTF,
+    // RTF,
     HTML,
 }
 
@@ -53,18 +52,14 @@ impl FromStr for PasteboardType {
             return Ok(PasteboardType::TEXT);
         }
 
-        if input == "public.utf16-external-plain-text" {
-            return Ok(PasteboardType::TEXTU16);
-        }
-
         if input == "public.file-url" {
             return Ok(PasteboardType::FILEPATH);
         }
 
-        if input.contains(".rtf") {
-            return Ok(PasteboardType::RTF);
-        }
-
+        // if input.contains(".rtf") {
+        //     return Ok(PasteboardType::RTF);
+        // }
+        //
         if input.contains(".html") {
             return Ok(PasteboardType::HTML);
         }
@@ -109,10 +104,7 @@ impl MacosClipboard {
     }
 
     /// param plain_string - NSString
-    fn convert_plain_string(
-        &self,
-        plain_string: ObjectId,
-    ) -> Result<ClipboardData, ClipboardError> {
+    fn convert_plain_string(&self, plain_string: ObjectId) -> Result<Vec<u8>, ClipboardError> {
         unsafe {
             if plain_string.is_null() {
                 return Err(ClipboardError::Read(
@@ -139,7 +131,7 @@ impl MacosClipboard {
 
             let slice = std::slice::from_raw_parts(bytes, length);
 
-            Ok(ClipboardData::String(slice.to_vec()))
+            Ok(slice.to_vec())
         }
     }
 
@@ -147,55 +139,49 @@ impl MacosClipboard {
         let pb = self.p;
         unsafe {
             let ns_string: ObjectId = msg_send![pb, stringForType: t];
-            self.convert_plain_string(ns_string)
+            Ok(ClipboardData::String((
+                StringType::Utf8Plain,
+                self.convert_plain_string(ns_string)?,
+            )))
         }
     }
-    fn read_text_from_rtf(&self, first_type: ObjectId) -> Result<ClipboardData, ClipboardError> {
-        autoreleasepool(|| {
-            unsafe {
-                // Get RTF data from the clipboard
-                let data: *mut Object = msg_send![self.p, dataForType: first_type];
-
-                if data.is_null() {
-                    return Err(ClipboardError::Read(
-                        "No RTF data found in clipboard.".to_string(),
-                    ));
-                }
-
-                // Convert NSData (RTF) to NSAttributedString
-                let attributed_string: ObjectId = msg_send![class!(NSAttributedString), alloc];
-                let mut document_attributes: ObjectId = ptr::null_mut();
-                let attributed_string: ObjectId = msg_send![attributed_string,
-                    initWithData:data options:ptr::null::<u8>()
-                    documentAttributes:&mut document_attributes error:ptr::null::<u8>()
-                ];
-
-                if document_attributes.is_null() {
-                    return Err(ClipboardError::Read(
-                        "RTF Document attributes is null".to_string(),
-                    ));
-                }
-
-                if attributed_string.is_null() {
-                    return Err(ClipboardError::Read("Failed to parse RTF data".to_string()));
-                }
-
-                // Extract the plain string
-                // NSString
-                let plain_string: ObjectId = msg_send![attributed_string, string];
-                self.convert_plain_string(plain_string)
-            }
-        })
-    }
-    fn read_text(&self, first_type: ObjectId) -> Result<ClipboardData, ClipboardError> {
-        autoreleasepool(|| {
-            unsafe {
-                // Get NSString from Pasteboard
-                let ns_string: ObjectId = msg_send![self.p, stringForType: first_type];
-                self.convert_plain_string(ns_string)
-            }
-        })
-    }
+    // fn read_text_from_rtf(&self, first_type: ObjectId) -> Result<ClipboardData, ClipboardError> {
+    //     autoreleasepool(|| {
+    //         unsafe {
+    //             // Get RTF data from the clipboard
+    //             let data: *mut Object = msg_send![self.p, dataForType: first_type];
+    //
+    //             if data.is_null() {
+    //                 return Err(ClipboardError::Read(
+    //                     "No RTF data found in clipboard.".to_string(),
+    //                 ));
+    //             }
+    //
+    //             // Convert NSData (RTF) to NSAttributedString
+    //             let attributed_string: ObjectId = msg_send![class!(NSAttributedString), alloc];
+    //             let mut document_attributes: ObjectId = ptr::null_mut();
+    //             let attributed_string: ObjectId = msg_send![attributed_string,
+    //                 initWithData:data options:ptr::null::<u8>()
+    //                 documentAttributes:&mut document_attributes error:ptr::null::<u8>()
+    //             ];
+    //
+    //             if document_attributes.is_null() {
+    //                 return Err(ClipboardError::Read(
+    //                     "RTF Document attributes is null".to_string(),
+    //                 ));
+    //             }
+    //
+    //             if attributed_string.is_null() {
+    //                 return Err(ClipboardError::Read("Failed to parse RTF data".to_string()));
+    //             }
+    //
+    //             // Extract the plain string
+    //             // NSString
+    //             let plain_string: ObjectId = msg_send![attributed_string, string];
+    //             self.convert_plain_string(plain_string)
+    //         }
+    //     })
+    // }
     fn read_image(&self, first_type: ObjectId) -> Result<Vec<u8>, ClipboardError> {
         let pb = self.p;
         autoreleasepool(|| {
@@ -239,7 +225,10 @@ impl MacosClipboard {
                 let html_string: ObjectId =
                     msg_send![html_string, initWithData:data encoding:NSUTF8Encoding];
 
-                self.convert_plain_string(html_string)
+                Ok(ClipboardData::String((
+                    StringType::Html,
+                    self.convert_plain_string(html_string)?,
+                )))
             }
         })
     }
@@ -269,7 +258,7 @@ impl MacosClipboard {
         debug_println!("Binary data written as {}", mime_type_opt.unwrap());
         Ok(())
     }
-    fn write_text(&self, text: &[u8]) -> Result<(), ClipboardError> {
+    fn write_text(&self, text: &[u8], s_type: StringType) -> Result<(), ClipboardError> {
         autoreleasepool(|| {
             unsafe {
                 let text = String::from_utf8(text.to_vec()).map_err(|err| {
@@ -289,14 +278,18 @@ impl MacosClipboard {
                     ));
                 }
 
-                let c_public_text_type = CString::new("public.utf8-plain-text").map_err(|err| {
-                    ClipboardError::Write(format!(
-                        "Failed to create public text type C string: {:?}",
-                        err
-                    ))
-                })?;
+                let _: () = msg_send![self.p, clearContents];
 
-                self.write_str_into_clipboard(&c_public_text_type, ns_string)?;
+                match s_type {
+                    StringType::Html => {
+                        self.write_str_into_clipboard("public.html", ns_string)?;
+                    }
+                    StringType::Utf8Plain => {
+                        // handled later
+                    }
+                }
+
+                self.write_str_into_clipboard("public.utf8-plain-text", ns_string)?;
 
                 debug_println!("Text written to clipboard: {}", text);
                 Ok(())
@@ -305,17 +298,21 @@ impl MacosClipboard {
     }
     fn write_str_into_clipboard(
         &self,
-        c_public_text_type: &CString,
+        c_public_text_type: &str,
         ns_string: ObjectId,
     ) -> Result<(), ClipboardError> {
         let pb = self.p;
         unsafe {
+            let c_public_text_type = CString::new(c_public_text_type).map_err(|err| {
+                ClipboardError::Write(format!(
+                    "Failed to create public text type C string: {:?}",
+                    err
+                ))
+            })?;
+
             // Define the public text type
             let utf8_type: ObjectId =
                 msg_send![class!(NSString), stringWithUTF8String: c_public_text_type.as_ptr()];
-
-            // Clear clipboard before writing
-            let _: () = msg_send![pb, clearContents];
 
             // Write the text to the clipboard
             let success: bool = msg_send![pb, setString: ns_string forType: utf8_type];
@@ -378,7 +375,9 @@ impl Clipboard for MacosClipboard {
         autoreleasepool(|| {
             match data {
                 ClipboardData::File(file_data) => self.write_file(file_data)?,
-                ClipboardData::String(data) => self.write_text(data.as_slice())?,
+                ClipboardData::String((s_type, data)) => {
+                    self.write_text(data.as_slice(), s_type)?
+                }
             }
             Ok(())
         })
@@ -405,7 +404,6 @@ impl Clipboard for MacosClipboard {
 
                 match p_type {
                     PasteboardType::TEXT => self.read_u8_str(first_type),
-                    PasteboardType::TEXTU16 => self.read_text(first_type),
                     PasteboardType::IMAGE => {
                         debug_println!("Image format detected: {}", type_str);
                         let mime_type = type_str.split(".").last().unwrap_or("png");
@@ -413,9 +411,9 @@ impl Clipboard for MacosClipboard {
                         let buff = self.read_image(first_type)?;
                         Ok(ClipboardData::File((filename, buff)))
                     }
-                    PasteboardType::RTF => self.read_text_from_rtf(first_type),
                     PasteboardType::FILEPATH => self.read_file(first_type),
                     PasteboardType::HTML => self.read_html(first_type),
+                    // PasteboardType::RTF => self.read_text_from_rtf(first_type),
                 }
             }
         })

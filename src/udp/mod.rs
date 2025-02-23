@@ -81,29 +81,32 @@
 //!
 
 mod protocol;
+mod transferable;
 
-use crate::{clipboard::ClipboardData, debug_println};
+use crate::clipboard::ClipboardData;
+use crate::debug_println;
 use protocol::{
-    encode_data, encode_header, encode_message_heading, read_data, read_header, read_size,
-    EncodeError, ReaderOffset,
+    encode_chunks, encode_header, encode_size, read_data, read_header, read_header_expected,
+    read_size, Chunk, EncodeError, ReaderOffset,
 };
 
-pub use protocol::{HeaderType, MessageType, ParseErrors, PeerData, Transferable};
-use std::net::{SocketAddr, UdpSocket};
+pub use protocol::{HeaderType, MessageType, ParseErrors, PeerData};
+use std::{
+    net::{SocketAddr, UdpSocket},
+    str::FromStr,
+};
+pub use transferable::Transferable;
 
 pub fn parse_message(data: Vec<u8>) -> Result<MessageType, ParseErrors> {
     let mut reader = ReaderOffset { offset: 0 };
-    let file_header = read_header(&data, &mut reader)?;
+    read_header_expected(&data, &mut reader, "XCOP")?;
     let file_size = read_size(&data, &mut reader)?;
 
     debug_println!("Reading message. Size: {:?}", file_size);
 
-    if file_header != HeaderType::Xcop {
-        return Err(ParseErrors::InvalidStructure);
-    }
-
     while reader.offset <= data.len() {
         let header = read_header(&data, &mut reader)?;
+        let header = HeaderType::from_str(&header)?;
         let size = read_size(&data, &mut reader)?;
         let data = read_data(&data, &mut reader, size)?;
 
@@ -140,33 +143,38 @@ pub fn parse_message(data: Vec<u8>) -> Result<MessageType, ParseErrors> {
 
 pub fn compose_message(message: &MessageType, protocol_ver: u32) -> Result<Vec<u8>, EncodeError> {
     let mut result: Vec<u8> = vec![];
-    let mut out: Vec<u8> = vec![];
+    let mut header: String = String::new();
+    let mut bytes: Vec<u8> = vec![];
     match message {
         MessageType::Xcon(_data) => {
-            encode_header(HeaderType::Xcon, &mut out)?;
-            let bytes = _data.serialize()?;
-            encode_data(&bytes, &mut out)?;
+            header = HeaderType::Xcon.to_string();
+            bytes = _data.serialize()?;
         }
         MessageType::Xacn(_data) => {
-            encode_header(HeaderType::Xacn, &mut out)?;
-            let bytes = _data.serialize()?;
-            encode_data(&bytes, &mut out)?;
+            header = HeaderType::Xacn.to_string();
+            bytes = _data.serialize()?;
         }
         MessageType::Xcpy => {
-            encode_header(HeaderType::Xcpy, &mut out)?;
-            encode_data(&vec![], &mut out)?;
+            header = HeaderType::Xcpy.to_string();
         }
         MessageType::Xpst(data) => {
-            encode_header(HeaderType::Xpst, &mut out)?;
-            let encoded = data.serialize()?;
-            encode_data(&encoded, &mut out)?;
+            header = HeaderType::Xpst.to_string();
+            bytes = data.serialize()?;
         }
         MessageType::NoMessage => {}
     }
-    // encode first part of the message
-    encode_message_heading(protocol_ver, out.len(), &mut result)?;
-    // append message
-    result.extend(out);
+    // signature chunk
+    encode_header(&HeaderType::Xcop.to_string(), &mut result);
+    encode_size(bytes.len() + 4 + 4, &mut result)?;
+    let ver_header = HeaderType::Xver.to_string();
+    let ver_data = u32::to_be_bytes(protocol_ver);
+    let chunks: Vec<Chunk> = vec![
+        // protocol_ver chunk
+        Chunk::new(&ver_header, &ver_data),
+        // main message
+        Chunk::new(&header, &bytes),
+    ];
+    encode_chunks(&chunks, &mut result)?;
 
     Ok(result)
 }

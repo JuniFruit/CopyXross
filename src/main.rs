@@ -26,6 +26,8 @@ fn main() {
     let mut randomizer = Rand::new(0);
     let rnd = randomizer.rand();
     let cp = new_clipboard().unwrap();
+    cp.write(cp.read().unwrap()).unwrap();
+    return;
 
     // getting my peer name
     let my_peer_name = format!("PC_num-{}", rnd);

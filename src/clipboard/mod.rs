@@ -2,6 +2,8 @@
 mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
+use std::str::FromStr;
+
 use crate::utils::Filename;
 
 #[derive(Debug)]
@@ -12,8 +14,34 @@ pub enum ClipboardError {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum StringType {
+    Html,
+    Utf8Plain,
+}
+
+impl ToString for StringType {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Html => "HTML".to_string(),
+            Self::Utf8Plain => "UTF8P".to_string(),
+        }
+    }
+}
+
+impl FromStr for StringType {
+    type Err = ClipboardError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "HTML" => Ok(StringType::Html),
+            "UTF8P" => Ok(StringType::Utf8Plain),
+            _ => Err(ClipboardError::Init(format!("Unknown string type: {}", s))),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum ClipboardData {
-    String(Vec<u8>),
+    String((StringType, Vec<u8>)),
     File((Filename, Vec<u8>)),
 }
 
