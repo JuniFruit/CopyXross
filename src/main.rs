@@ -15,7 +15,7 @@ use local_ip_address::local_ip;
 use network::listen_to_socket;
 use network::send_message_to_peer;
 use network::send_message_to_socket;
-use network::socket;
+use network::socket as socket_bind;
 use network::PROTOCOL_VER;
 use std::collections::HashMap;
 use std::io::Read;
@@ -59,7 +59,7 @@ fn main() {
     // bind listener
     let broadcast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)), PORT);
     let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), PORT);
-    let socket = socket(bind).unwrap();
+    let socket = socket_bind(bind).unwrap();
     socket.set_broadcast(true).unwrap();
     // discover peers on the network
     // debug_send(&socket, &cp);
@@ -92,7 +92,7 @@ fn main() {
             }
         }
     });
-    let sock = socket.try_clone().unwrap();
+    let sock = socket_bind(bind).expect("Could not bind another socket");
     let client_handler = thread::spawn(move || {
         let mut input = String::new();
 
@@ -150,7 +150,17 @@ fn main() {
 
     // main listener loop
     loop {
-        if client_handler.is_finished() {
+        if client_handler.is_finished() || t_handler.is_finished() {
+            let c_res = client_handler.join();
+            let t_res = t_handler.join();
+            if c_res.is_err() {
+                println!("Program finished with error: {:?}", c_res.unwrap_err());
+            } else if t_res.is_err() {
+                println!("Program finished with error: {:?}", t_res.unwrap_err())
+            } else {
+                println!("Program finished successfully")
+            }
+
             return;
         }
         let res = listen_to_socket(&socket);

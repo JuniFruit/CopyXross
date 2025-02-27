@@ -7,6 +7,7 @@ use crate::{
     clipboard::Clipboard,
     debug_println,
     encode::{compose_message, MessageType},
+    PORT,
 };
 
 #[derive(Debug)]
@@ -22,7 +23,7 @@ pub const PROTOCOL_VER: u32 = 1;
 #[allow(dead_code)]
 pub fn debug_send(_socket: &UdpSocket, cp: &impl Clipboard) {
     let addr = IpAddr::V4(Ipv4Addr::new(172, 20, 10, 6));
-    let addr = SocketAddr::new(addr, 53300);
+    let addr = SocketAddr::new(addr, PORT);
     let mut handler = TcpStream::connect(addr).unwrap();
 
     let cp_buff = cp.read().unwrap();
