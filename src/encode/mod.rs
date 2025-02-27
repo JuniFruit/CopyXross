@@ -91,24 +91,21 @@ use protocol::{
 };
 
 pub use protocol::{HeaderType, MessageType, ParseErrors, PeerData};
-use std::{
-    net::{SocketAddr, UdpSocket},
-    str::FromStr,
-};
+use std::str::FromStr;
 pub use transferable::Transferable;
 
-pub fn parse_message(data: Vec<u8>) -> Result<MessageType, ParseErrors> {
+pub fn parse_message(data: &[u8]) -> Result<MessageType, ParseErrors> {
     let mut reader = ReaderOffset { offset: 0 };
-    read_header_expected(&data, &mut reader, "XCOP")?;
-    let file_size = read_size(&data, &mut reader)?;
+    read_header_expected(data, &mut reader, "XCOP")?;
+    let file_size = read_size(data, &mut reader)?;
 
     debug_println!("Reading message. Size: {:?}", file_size);
 
     while reader.offset <= data.len() {
-        let header = read_header(&data, &mut reader)?;
+        let header = read_header(data, &mut reader)?;
         let header = HeaderType::from_str(&header)?;
-        let size = read_size(&data, &mut reader)?;
-        let data = read_data(&data, &mut reader, size)?;
+        let size = read_size(data, &mut reader)?;
+        let data = read_data(data, &mut reader, size)?;
 
         match header {
             HeaderType::Xver => {

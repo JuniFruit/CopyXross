@@ -7,6 +7,7 @@ use std::str::FromStr;
 use crate::utils::Filename;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum ClipboardError {
     Init(String),
     Read(String),
@@ -45,7 +46,7 @@ pub enum ClipboardData {
     File((Filename, Vec<u8>)),
 }
 
-pub trait Clipboard: Sized {
+pub trait Clipboard: Sized + Send + Sync {
     fn init() -> Result<Self, ClipboardError>;
     fn write(&self, data: ClipboardData) -> Result<(), ClipboardError>;
     fn read(&self) -> Result<ClipboardData, ClipboardError>;

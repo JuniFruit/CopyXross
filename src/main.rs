@@ -3,31 +3,41 @@ mod encode;
 mod network;
 mod utils;
 
-use clipboard::{new_clipboard, Clipboard};
-use encode::{compose_message, parse_message, MessageType, PeerData};
+use clipboard::new_clipboard;
+use clipboard::Clipboard;
+use clipboard::ClipboardData;
+use clipboard::ClipboardError;
+use encode::compose_message;
+use encode::parse_message;
+use encode::MessageType;
+use encode::PeerData;
 use local_ip_address::local_ip;
-use network::{
-    listen_to_socket, ping_apps_on_network, send_message_to_socket, socket, PROTOCOL_VER,
-};
-use std::{
-    collections::HashMap,
-    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
-};
-use utils::Rand;
+use network::listen_to_socket;
+use network::send_message_to_peer;
+use network::send_message_to_socket;
+use network::socket;
+use network::PROTOCOL_VER;
+use std::collections::HashMap;
+use std::io::ErrorKind;
+use std::io::Read;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+const PORT: u16 = 53300;
 
 fn main() {
     println!("Starting...");
     println!("Scanning network...");
     let my_local_ip = local_ip().expect("Could not determine my ip");
     println!("This is my local IP address: {:?}", my_local_ip);
-    let port = 53300;
     let mut connection_map: HashMap<IpAddr, PeerData> = HashMap::new();
-    let mut randomizer = Rand::new(0);
-    let rnd = randomizer.rand();
-    let cp = new_clipboard().unwrap();
+    let cp = Arc::new(Mutex::new(new_clipboard().unwrap()));
+    let cp_clone = cp.clone();
 
     // getting my peer name
-    let my_peer_name = format!("PC_num-{}", rnd);
+    let my_peer_name = format!("PC_num-{}", 42);
     let my_peer_data = encode::PeerData {
         peer_name: my_peer_name,
     };
@@ -45,65 +55,146 @@ fn main() {
         .unwrap();
 
     // bind listener
-    let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port);
+    let broadcast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)), PORT);
+    let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), PORT);
     let socket = socket(bind).unwrap();
+    socket.set_broadcast(true).unwrap();
     // discover peers on the network
-    ping_apps_on_network(&socket, my_local_ip.to_canonical(), &greeting_message, port);
     // debug_send(&socket, &cp);
+
+    let t_handler = thread::spawn(move || {
+        let handler = TcpListener::bind(SocketAddr::new(my_local_ip, PORT)).unwrap();
+        debug_println!("Tcp is bound!");
+        let mut buffer = vec![];
+
+        for data in handler.incoming() {
+            match data {
+                Ok(mut data) => {
+                    let read = data.read(&mut buffer);
+                    if read.is_err() {
+                        println!("Failed to read TCP stream: {:?}", read.unwrap_err());
+                        continue;
+                    };
+                    let message = parse_message(&buffer).unwrap_or(MessageType::NoMessage);
+
+                    if let MessageType::Xpst(cp_data) = message {
+                        attempt_clipboard_write(&cp, cp_data);
+                    }
+                    buffer.clear();
+                }
+                Err(err) => println!("Error during reading TCP stream: {:?}", err),
+            }
+        }
+    });
+    if t_handler.is_finished() {
+        panic!("Could not spin up Tcp listener!")
+    }
+
+    send_message_to_socket(&socket, broadcast_addr, &greeting_message);
 
     // main listener loop
     loop {
         let res = listen_to_socket(&socket);
-        process_message(res, &mut connection_map, &ack_msg, &cp, &socket);
+        if res.is_some() {
+            let (ip_addr, data) = res.unwrap();
+            let parsed = parse_message(&data).unwrap_or_else(|err| {
+                println!("Parsing error: {:?}", err);
+                MessageType::NoMessage
+            });
+            match parsed {
+                encode::MessageType::NoMessage => {
+                    println!("Skipping message. Empty message received");
+                }
+                encode::MessageType::Xacn(_data) => {
+                    println!("Ack got: {:?}", _data);
+                    connection_map.insert(ip_addr.ip(), _data);
+                }
+                encode::MessageType::Xcon(_data) => {
+                    println!("Connection got: {:?}", _data);
+                    connection_map.insert(ip_addr.ip(), _data);
+                    send_message_to_socket(&socket, ip_addr, &ack_msg);
+                }
+                encode::MessageType::Xcpy => {
+                    let cp_buffer_res = attempt_clipboard_read(&cp_clone);
+
+                    if let Ok(cp_buffer_res) = cp_buffer_res {
+                        if cp_buffer_res.is_err() {
+                            println!("CLIPBOARD ERR: {:?}", cp_buffer_res.unwrap_err());
+                        } else {
+                            let cp_buffer = cp_buffer_res.unwrap();
+                            let msg_type = MessageType::Xpst(cp_buffer);
+                            let message = compose_message(&msg_type, PROTOCOL_VER);
+                            if let Ok(data) = message {
+                                if let Err(err) = send_message_to_peer(&ip_addr, &data) {
+                                    println!("Error sending TCP message: {:?}", err);
+                                }
+                            } else {
+                                println!("ENCODE ERR: {:?}", message.unwrap_err());
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
 
-pub fn process_message(
-    res: Option<(SocketAddr, Vec<u8>)>,
-    connection_map: &mut HashMap<IpAddr, PeerData>,
-    ack_msg: &[u8],
-    cp: &impl Clipboard,
-    socket: &UdpSocket,
-) {
-    if res.is_some() {
-        let (ip_addr, data) = res.unwrap();
-        let parsed = parse_message(data).unwrap_or_else(|err| {
-            println!("Parsing error: {:?}", err);
-            MessageType::NoMessage
-        });
-        match parsed {
-            encode::MessageType::NoMessage => {
-                println!("Skipping message. Empty message received");
-            }
-            encode::MessageType::Xacn(_data) => {
-                println!("Ack got: {:?}", _data);
-                connection_map.insert(ip_addr.ip(), _data);
-            }
-            encode::MessageType::Xcon(_data) => {
-                println!("Connection got: {:?}", _data);
-                connection_map.insert(ip_addr.ip(), _data);
-                send_message_to_socket(socket, ip_addr, ack_msg);
-            }
-            encode::MessageType::Xcpy => {
-                let cp_buffer_res = cp.read();
-                if cp_buffer_res.is_err() {
-                    println!("CLIPBOARD ERR: {:?}", cp_buffer_res.unwrap_err());
-                } else {
-                    let cp_buffer = cp_buffer_res.unwrap();
-                    let msg_type = MessageType::Xpst(cp_buffer);
-                    let message = compose_message(&msg_type, PROTOCOL_VER);
-                    if message.is_err() {
-                        println!("ENCODE ERR: {:?}", message.unwrap_err());
-                    } else {
-                        send_message_to_socket(socket, ip_addr, &message.unwrap());
-                    }
+fn attempt_clipboard_write(clipboard: &Arc<Mutex<impl Clipboard>>, data: ClipboardData) {
+    let mut attempts = 0;
+    let max_attempts = 5;
+
+    loop {
+        match clipboard.lock() {
+            Ok(cp) => {
+                if let Err(err) = cp.write(data) {
+                    println!("Failed to write to clipboard: {:?}", err);
                 }
+
+                break; // Success, exit loop
             }
-            encode::MessageType::Xpst(_data) => {
-                let res = cp.write(_data);
-                if res.is_err() {
-                    println!("CLIPBOARD ERR: {:?}", res.unwrap_err());
+            Err(_) => {
+                attempts += 1;
+                if attempts >= max_attempts {
+                    debug_println!(
+                        "Could not acquire clipboard lock after {} attempts. Giving up.",
+                        max_attempts
+                    );
+                    break;
                 }
+
+                let delay = Duration::from_millis(100 * (2_u64.pow(attempts))); // Exponential backoff
+                debug_println!("⚠️ Clipboard is locked. Retrying in {:?}...", delay);
+                thread::sleep(delay);
+            }
+        }
+    }
+}
+
+fn attempt_clipboard_read(
+    clipboard: &Arc<Mutex<impl Clipboard>>,
+) -> Result<Result<ClipboardData, ClipboardError>, ErrorKind> {
+    let mut attempts = 0;
+    let max_attempts = 5;
+
+    loop {
+        match clipboard.lock() {
+            Ok(cp) => {
+                return Ok(cp.read());
+            }
+            Err(_) => {
+                attempts += 1;
+                if attempts >= max_attempts {
+                    debug_println!(
+                        "Could not acquire clipboard lock after {} attempts. Giving up.",
+                        max_attempts
+                    );
+                    return Err(ErrorKind::Deadlock);
+                }
+
+                let delay = Duration::from_millis(100 * (2_u64.pow(attempts))); // Exponential backoff
+                debug_println!("⚠️ Clipboard is locked. Retrying in {:?}...", delay);
+                thread::sleep(delay);
             }
         }
     }

@@ -14,6 +14,7 @@ use objc::sel;
 use objc::sel_impl;
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::marker::PhantomData;
 use std::str::FromStr;
 
 #[link(name = "AppKit", kind = "framework")]
@@ -75,7 +76,12 @@ impl FromStr for PasteboardType {
 
 pub struct MacosClipboard {
     p: ObjectId,
+    _marker: PhantomData<*mut ()>, // Marker to enforce memory safety
 }
+
+// SAFETY: We manually implement Send/Sync because `p` will only be used on one thread at a time.
+unsafe impl Send for MacosClipboard {}
+unsafe impl Sync for MacosClipboard {}
 
 #[allow(unexpected_cfgs)]
 impl MacosClipboard {
@@ -369,7 +375,10 @@ impl Clipboard for MacosClipboard {
                 "General pasteboard is not returned. Pointer is null",
             )));
         }
-        Ok(MacosClipboard { p: pb })
+        Ok(MacosClipboard {
+            p: pb,
+            _marker: PhantomData {},
+        })
     }
     fn write(&self, data: ClipboardData) -> Result<(), ClipboardError> {
         autoreleasepool(|| {
