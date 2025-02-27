@@ -28,7 +28,7 @@ use std::time::Duration;
 
 const PORT: u16 = 53300;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 enum SyncMessage {
     Stop,
 }
@@ -60,31 +60,31 @@ fn main() {
         debug_println!("Tcp is bound!");
         let mut buffer = vec![];
 
-        for data in handler.incoming() {
+        loop {
             if let Ok(msg) = t_receiver.try_recv() {
                 if msg == SyncMessage::Stop {
                     break;
                 }
             }
-            match data {
-                Ok(mut data) => {
-                    let read = data.read(&mut buffer);
-                    if read.is_err() {
-                        println!("Failed to read TCP stream: {:?}", read.unwrap_err());
-                        continue;
-                    };
-                    let message = parse_message(&buffer).unwrap_or(MessageType::NoMessage);
+            if let Ok(data) = handler.accept() {
+                let mut data = data.0;
+                println!("Test");
 
-                    if let MessageType::Xpst(cp_data) = message {
-                        attempt_write_lock(&cp.clone(), |cp_l| {
-                            if let Err(err) = cp_l.write(cp_data) {
-                                println!("{:?}", err);
-                            }
-                        });
-                    }
-                    buffer.clear();
+                let read = data.read(&mut buffer);
+                if read.is_err() {
+                    println!("Failed to read TCP stream: {:?}", read.unwrap_err());
+                    continue;
+                };
+                let message = parse_message(&buffer).unwrap_or(MessageType::NoMessage);
+
+                if let MessageType::Xpst(cp_data) = message {
+                    attempt_write_lock(&cp.clone(), |cp_l| {
+                        if let Err(err) = cp_l.write(cp_data) {
+                            println!("{:?}", err);
+                        }
+                    });
                 }
-                Err(err) => println!("Error during reading TCP stream: {:?}", err),
+                buffer.clear();
             }
         }
     });
@@ -170,6 +170,7 @@ fn main() {
                     break;
                 }
             }
+            println!("{:?}", s_receiver.try_recv());
 
             let res = listen_to_socket(&socket);
             if res.is_some() {
