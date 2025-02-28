@@ -101,8 +101,8 @@ pub fn send_message_to_peer(peer_addr: &SocketAddr, data: &[u8]) -> Result<(), N
     Ok(())
 }
 
-pub fn init_listeners() -> Result<(UdpSocket, TcpListener), NetworkError> {
-    let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), PORT);
+pub fn init_listeners(my_ip: IpAddr) -> Result<(UdpSocket, TcpListener), NetworkError> {
+    let bind = SocketAddr::new(my_ip, PORT);
     let s = socket(bind).map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
     s.set_broadcast(true)
         .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;

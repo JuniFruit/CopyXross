@@ -65,7 +65,7 @@ fn main() {
 
     // bind listener
     let broadcast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)), PORT);
-    let (socket, tcp_listener) = init_listeners().unwrap();
+    let (socket, tcp_listener) = init_listeners(my_local_ip).unwrap();
 
     let socket_clone = socket.try_clone().expect("Could not close socket!");
 
