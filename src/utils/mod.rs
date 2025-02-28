@@ -17,7 +17,11 @@ pub struct Rand {
 
 #[macro_export]
 macro_rules! debug_println {
-    ($($arg:tt)*) => (if ::std::cfg!(debug_assertions) { ::std::println!($($arg)*); })
+    ($($arg:tt)*) => {
+        if ::std::cfg!(debug_assertions) {
+            ::std::print!("{}\r\n", format!($($arg)*));
+        }
+    }
 }
 
 #[allow(dead_code)]

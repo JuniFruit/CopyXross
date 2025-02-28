@@ -1,6 +1,7 @@
 use std::{
-    io::Write,
-    net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket},
+    io::{ErrorKind, Read, Write},
+    net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket},
+    time::Duration,
 };
 
 use crate::{
@@ -10,12 +11,13 @@ use crate::{
     PORT,
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum NetworkError {
     Connect(String),
     Write(String),
     Read(String),
+    Blocked,
 }
 
 pub const PROTOCOL_VER: u32 = 1;
@@ -61,7 +63,9 @@ pub fn listen_to_socket(socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
             Some((src, Vec::<u8>::from(&buf[.._amt])))
         }
         Err(err) => {
-            debug_println!("Read error: {:?}", err);
+            if err.kind() != ErrorKind::WouldBlock && err.kind() != ErrorKind::TimedOut {
+                debug_println!("Read error: {:?}", err);
+            }
             None
         }
     }
@@ -70,6 +74,7 @@ pub fn listen_to_socket(socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
 pub fn send_message_to_socket(socket: &UdpSocket, target: SocketAddr, data: &[u8]) {
     match socket.send_to(data, target) {
         Ok(amt) => {
+            debug_println!("Sent packet size {} bytes", amt);
             debug_println!("Sent packet size {} bytes", amt);
         }
         Err(e) => {
@@ -94,4 +99,32 @@ pub fn send_message_to_peer(peer_addr: &SocketAddr, data: &[u8]) -> Result<(), N
     }
 
     Ok(())
+}
+
+pub fn init_listeners() -> Result<(UdpSocket, TcpListener), NetworkError> {
+    let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), PORT);
+    let s = socket(bind).map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
+    s.set_broadcast(true)
+        .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
+
+    s.set_read_timeout(Some(Duration::new(1, 0)))
+        .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
+
+    let tcp = TcpListener::bind(bind).map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
+    tcp.set_nonblocking(true)
+        .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
+    Ok((s, tcp))
+}
+
+pub fn listen_to_tcp(socket: &TcpListener, buff: &mut [u8]) -> Result<usize, NetworkError> {
+    let (mut data, _ip) = socket.accept().map_err(|err| {
+        if err.kind() == ErrorKind::TimedOut || err.kind() == ErrorKind::WouldBlock {
+            return NetworkError::Blocked;
+        }
+        NetworkError::Read(format!("{:?}", err))
+    })?;
+    let read = data
+        .read(buff)
+        .map_err(|err| NetworkError::Read(format!("{:?}", err)))?;
+    Ok(read)
 }
