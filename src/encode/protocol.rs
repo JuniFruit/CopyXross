@@ -14,6 +14,7 @@ pub enum MessageType {
     Xacn(PeerData),
     Xcon(PeerData),
     Xcpy,
+    Xdis,
     Xpst(ClipboardData),
     NoMessage,
 }
@@ -25,6 +26,7 @@ pub enum HeaderType {
     Xcon,
     Xcpy,
     Xpst,
+    Xdis,
 }
 
 impl FromStr for HeaderType {
@@ -38,6 +40,7 @@ impl FromStr for HeaderType {
             "XCON" => Ok(HeaderType::Xcon),
             "XCPY" => Ok(HeaderType::Xcpy),
             "XPST" => Ok(HeaderType::Xpst),
+            "XDIS" => Ok(HeaderType::Xdis),
             _ => Err(ParseErrors::UnknownHeader(format!(
                 "Unknown header: {}",
                 input
@@ -55,6 +58,7 @@ impl ToString for HeaderType {
             Self::Xcon => String::from("XCON"),
             Self::Xcpy => String::from("XCPY"),
             Self::Xpst => String::from("XPST"),
+            Self::Xdis => String::from("XDIS"),
         }
     }
 }

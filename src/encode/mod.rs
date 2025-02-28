@@ -129,6 +129,7 @@ pub fn parse_message(data: &[u8]) -> Result<MessageType, ParseErrors> {
                 let decoded = ClipboardData::deserialize(data.as_slice())?;
                 return Ok(MessageType::Xpst(decoded));
             }
+            HeaderType::Xdis => return Ok(MessageType::Xdis),
             HeaderType::Xcop => {
                 // already handled
                 continue;
@@ -157,6 +158,9 @@ pub fn compose_message(message: &MessageType, protocol_ver: u32) -> Result<Vec<u
         MessageType::Xpst(data) => {
             header = HeaderType::Xpst.to_string();
             bytes = data.serialize()?;
+        }
+        MessageType::Xdis => {
+            header = HeaderType::Xdis.to_string();
         }
         MessageType::NoMessage => {}
     }

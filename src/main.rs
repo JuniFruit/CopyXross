@@ -84,8 +84,6 @@ fn main() {
 
             if c_res.is_err() {
                 println!("Program finished with error: {:?}", c_res.unwrap_err());
-            } else {
-                println!("Program finished successfully")
             }
 
             break;
@@ -104,16 +102,23 @@ fn main() {
                 }
                 encode::MessageType::Xacn(_data) => {
                     println!("Ack got: {:?}", _data);
-                    attempt_write_lock(&connection_map.clone(), |mut m| {
+                    attempt_write_lock(&connection_map, |mut m| {
                         m.insert(ip_addr.ip(), _data);
                     });
                 }
                 encode::MessageType::Xcon(_data) => {
-                    println!("Connection got: {:?}", _data);
-                    attempt_write_lock(&connection_map.clone(), |mut m| {
-                        m.insert(ip_addr.ip(), _data);
+                    if ip_addr.ip() != my_local_ip {
+                        println!("Connection got: {:?}", _data);
+                        attempt_write_lock(&connection_map, |mut m| {
+                            m.insert(ip_addr.ip(), _data);
+                        });
+                        send_message_to_socket(&socket, ip_addr, &ack_msg);
+                    }
+                }
+                encode::MessageType::Xdis => {
+                    attempt_write_lock(&connection_map, |mut m| {
+                        m.remove(&ip_addr.ip());
                     });
-                    send_message_to_socket(&socket, ip_addr, &ack_msg);
                 }
                 encode::MessageType::Xcpy => {
                     let cp_buffer_res = cp.read();
@@ -156,6 +161,10 @@ fn main() {
         }
     }
     tcp_buff.clear();
+
+    let disconnect_msg = compose_message(&MessageType::Xdis, PROTOCOL_VER).unwrap();
+    send_message_to_socket(&socket, broadcast_addr, &disconnect_msg);
+    println!("Program finished successfully");
 }
 
 fn interact(connection_map: Arc<Mutex<HashMap<IpAddr, PeerData>>>, socket: &UdpSocket) {
