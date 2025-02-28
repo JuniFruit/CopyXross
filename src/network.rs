@@ -31,7 +31,8 @@ pub fn debug_send(_socket: &UdpSocket, cp: &impl Clipboard) {
     let cp_buff = cp.read().unwrap();
     let msg = compose_message(&MessageType::Xpst(cp_buff), PROTOCOL_VER).unwrap();
 
-    handler.write_all(&msg).unwrap();
+    let s = handler.write(&msg).unwrap();
+    println!("Written to TCP: {}", s);
 
     // send_message_to_socket(socket, addr, &msg);
 }
@@ -116,15 +117,17 @@ pub fn init_listeners(my_ip: IpAddr) -> Result<(UdpSocket, TcpListener), Network
     Ok((s, tcp))
 }
 
-pub fn listen_to_tcp(socket: &TcpListener, buff: &mut [u8]) -> Result<usize, NetworkError> {
+pub fn listen_to_tcp(socket: &TcpListener, buff: &mut Vec<u8>) -> Result<usize, NetworkError> {
     let (mut data, _ip) = socket.accept().map_err(|err| {
         if err.kind() == ErrorKind::TimedOut || err.kind() == ErrorKind::WouldBlock {
             return NetworkError::Blocked;
         }
         NetworkError::Read(format!("{:?}", err))
     })?;
+
     let read = data
-        .read(buff)
+        .read_to_end(buff)
         .map_err(|err| NetworkError::Read(format!("{:?}", err)))?;
+    debug_println!("Received data via TCP from {:?}. Size: {}", _ip, read);
     Ok(read)
 }

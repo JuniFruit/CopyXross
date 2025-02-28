@@ -76,7 +76,7 @@ fn main() {
         interact(connection_map_clone, &socket_clone);
     });
 
-    let mut tcp_buff = Vec::with_capacity(5024);
+    let mut tcp_buff: Vec<u8> = Vec::with_capacity(5024);
     // main listener loop
     loop {
         if client_handler.is_finished() {
@@ -87,6 +87,9 @@ fn main() {
             }
 
             break;
+        }
+        if !tcp_buff.is_empty() {
+            tcp_buff.clear();
         }
         let res = listen_to_socket(&socket);
         let tcp_res = listen_to_tcp(&tcp_listener, &mut tcp_buff);
@@ -142,17 +145,19 @@ fn main() {
             }
         }
         if tcp_res.is_ok() {
-            tcp_buff.clear();
             let _ = tcp_res.unwrap();
             let parsed = parse_message(&tcp_buff).unwrap_or_else(|err| {
                 println!("Parsing error: {:?}", err);
                 MessageType::NoMessage
             });
+
             if let MessageType::Xpst(cp_data) = parsed {
                 if let Err(err) = cp.write(cp_data) {
                     println!("CLIPBOARD ERR: {:?}", err);
                 }
             }
+            tcp_buff.clear();
+            tcp_buff = Vec::with_capacity(5024);
         } else {
             let err = tcp_res.unwrap_err();
             if err != NetworkError::Blocked {
