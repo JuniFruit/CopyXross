@@ -48,17 +48,16 @@ impl FromStr for HeaderType {
         }
     }
 }
-#[allow(clippy::to_string_trait_impl)]
-impl ToString for HeaderType {
-    fn to_string(&self) -> String {
+impl HeaderType {
+    pub fn to_string(&self) -> &str {
         match self {
-            Self::Xver => String::from("XVER"),
-            Self::Xcop => String::from("XCOP"),
-            Self::Xacn => String::from("XACN"),
-            Self::Xcon => String::from("XCON"),
-            Self::Xcpy => String::from("XCPY"),
-            Self::Xpst => String::from("XPST"),
-            Self::Xdis => String::from("XDIS"),
+            Self::Xver => "XVER",
+            Self::Xcop => "XCOP",
+            Self::Xacn => "XACN",
+            Self::Xcon => "XCON",
+            Self::Xcpy => "XCPY",
+            Self::Xpst => "XPST",
+            Self::Xdis => "XDIS",
         }
     }
 }

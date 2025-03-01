@@ -8,6 +8,7 @@ use crate::{
     clipboard::Clipboard,
     debug_println,
     encode::{compose_message, MessageType},
+    utils::format_bytes_size,
     PORT,
 };
 
@@ -57,7 +58,11 @@ pub fn listen_to_socket(socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
     let result = socket.recv_from(&mut buf);
     match result {
         Ok((_amt, src)) => {
-            debug_println!("Received data from {}. Size: {}", src, _amt);
+            debug_println!(
+                "Received data from {}. Size: {}",
+                src,
+                format_bytes_size(_amt)
+            );
             if _amt < 1 {
                 return None;
             }
@@ -75,7 +80,6 @@ pub fn listen_to_socket(socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
 pub fn send_message_to_socket(socket: &UdpSocket, target: SocketAddr, data: &[u8]) {
     match socket.send_to(data, target) {
         Ok(amt) => {
-            debug_println!("Sent packet size {} bytes", amt);
             debug_println!("Sent packet size {} bytes", amt);
         }
         Err(e) => {
@@ -107,8 +111,9 @@ pub fn init_listeners(my_ip: IpAddr) -> Result<(UdpSocket, TcpListener), Network
     let s = socket(bind).map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
     s.set_broadcast(true)
         .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
-
     s.set_read_timeout(Some(Duration::new(1, 0)))
+        .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
+    s.set_write_timeout(Some(Duration::new(1, 0)))
         .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
 
     let tcp = TcpListener::bind(bind).map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
@@ -128,6 +133,10 @@ pub fn listen_to_tcp(socket: &TcpListener, buff: &mut Vec<u8>) -> Result<usize, 
     let read = data
         .read_to_end(buff)
         .map_err(|err| NetworkError::Read(format!("{:?}", err)))?;
-    debug_println!("Received data via TCP from {:?}. Size: {}", _ip, read);
+    debug_println!(
+        "Received data via TCP from {:?}. Size: {}",
+        _ip,
+        format_bytes_size(read)
+    );
     Ok(read)
 }

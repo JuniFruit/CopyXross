@@ -66,6 +66,15 @@ pub fn create_file(file: &[u8], path: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn format_bytes_size(size: usize) -> String {
+    if size < 1024 {
+        format!("{} B", size)
+    } else {
+        let mbs = size / (1024 * 1024);
+        format!("{:.1$} MB", mbs, 2)
+    }
+}
+
 // pub fn from_u8_to_u16(bytes: &[u8]) -> std::result::Result<Vec<u16>, ParseErrors> {
 //     unsafe {
 //         let my_u16_vec_bis: Vec<u16> = (bytes.align_to::<u16>().1)

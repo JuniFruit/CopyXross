@@ -18,9 +18,9 @@ use network::send_message_to_socket;
 use network::NetworkError;
 use network::PROTOCOL_VER;
 use std::collections::HashMap;
-use std::net::UdpSocket;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc::channel;
+use std::sync::mpsc::Sender;
 use std::sync::MutexGuard;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -28,10 +28,11 @@ use std::time::Duration;
 
 const PORT: u16 = 53300;
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Debug)]
 #[allow(dead_code)]
 enum SyncMessage {
     Stop,
+    Cmd((SocketAddr, MessageType)),
 }
 
 fn main() {
@@ -67,13 +68,11 @@ fn main() {
     let broadcast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)), PORT);
     let (socket, tcp_listener) = init_listeners(my_local_ip).unwrap();
 
-    let socket_clone = socket.try_clone().expect("Could not close socket!");
-
     send_message_to_socket(&socket, broadcast_addr, &greeting_message);
 
     let client_handler = thread::spawn(move || {
         thread::sleep(Duration::new(2, 0));
-        interact(connection_map_clone, &socket_clone);
+        interact(_c_sender, connection_map_clone);
     });
 
     let mut tcp_buff: Vec<u8> = Vec::with_capacity(5024);
@@ -91,6 +90,7 @@ fn main() {
         if !tcp_buff.is_empty() {
             tcp_buff.clear();
         }
+        let client_res = _c_receiver.try_recv();
         let res = listen_to_socket(&socket);
         let tcp_res = listen_to_tcp(&tcp_listener, &mut tcp_buff);
         if res.is_some() {
@@ -164,6 +164,23 @@ fn main() {
                 debug_println!("Read error: {:?}", err);
             }
         }
+
+        if client_res.is_ok() {
+            let msg = client_res.unwrap();
+            #[allow(clippy::collapsible_match)]
+            if let SyncMessage::Cmd((target, msg_cmd)) = msg {
+                if let MessageType::Xcpy = msg_cmd {
+                    let cpy_cmd = compose_message(&MessageType::Xcpy, PROTOCOL_VER);
+                    if let Ok(data) = cpy_cmd {
+                        send_message_to_socket(&socket, target, &data);
+                    } else {
+                        println!("Failed to compose message: {:?}", cpy_cmd.unwrap_err());
+                    }
+                }
+            }
+        }
+
+        thread::sleep(Duration::new(2, 0));
     }
     tcp_buff.clear();
 
@@ -172,7 +189,7 @@ fn main() {
     println!("Program finished successfully");
 }
 
-fn interact(connection_map: Arc<Mutex<HashMap<IpAddr, PeerData>>>, socket: &UdpSocket) {
+fn interact(sender: Sender<SyncMessage>, connection_map: Arc<Mutex<HashMap<IpAddr, PeerData>>>) {
     let mut input = String::new();
     let usage_str = "Usage: cp <ip_addr>. Ex: cp 192.168.178.1";
     let delim = "-".repeat(50);
@@ -217,8 +234,12 @@ fn interact(connection_map: Arc<Mutex<HashMap<IpAddr, PeerData>>>, socket: &UdpS
             let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(ip[0], ip[1], ip[2], ip[3])), PORT);
 
             println!("Sending copy cmd to {:?}", addr);
-            let message = compose_message(&MessageType::Xcpy, PROTOCOL_VER).unwrap();
-            send_message_to_socket(socket, addr, &message);
+            if let Err(err) = sender.send(SyncMessage::Cmd((addr, MessageType::Xcpy))) {
+                debug_println!(
+                    "Sending client command between threads has failed: {:?}",
+                    err
+                );
+            }
         }
     }
 }

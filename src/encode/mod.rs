@@ -141,7 +141,7 @@ pub fn parse_message(data: &[u8]) -> Result<MessageType, ParseErrors> {
 
 pub fn compose_message(message: &MessageType, protocol_ver: u32) -> Result<Vec<u8>, EncodeError> {
     let mut result: Vec<u8> = vec![];
-    let mut header: String = String::new();
+    let mut header: &str = "";
     let mut bytes: Vec<u8> = vec![];
     match message {
         MessageType::Xcon(_data) => {
@@ -165,15 +165,15 @@ pub fn compose_message(message: &MessageType, protocol_ver: u32) -> Result<Vec<u
         MessageType::NoMessage => {}
     }
     // signature chunk
-    encode_header(&HeaderType::Xcop.to_string(), &mut result);
+    encode_header(HeaderType::Xcop.to_string(), &mut result);
     encode_size(bytes.len() + 4 + 4, &mut result)?;
     let ver_header = HeaderType::Xver.to_string();
     let ver_data = u32::to_be_bytes(protocol_ver);
     let chunks: Vec<Chunk> = vec![
         // protocol_ver chunk
-        Chunk::new(&ver_header, &ver_data),
+        Chunk::new(ver_header, &ver_data),
         // main message
-        Chunk::new(&header, &bytes),
+        Chunk::new(header, &bytes),
     ];
     encode_chunks(&chunks, &mut result)?;
 

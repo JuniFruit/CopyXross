@@ -20,11 +20,11 @@ pub enum StringType {
     Utf8Plain,
 }
 
-impl ToString for StringType {
-    fn to_string(&self) -> String {
+impl StringType {
+    pub fn to_string(&self) -> &str {
         match self {
-            Self::Html => "HTML".to_string(),
-            Self::Utf8Plain => "UTF8P".to_string(),
+            Self::Html => "HTML",
+            Self::Utf8Plain => "UTF8P",
         }
     }
 }
