@@ -179,8 +179,6 @@ fn main() {
                 }
             }
         }
-
-        thread::sleep(Duration::new(2, 0));
     }
     tcp_buff.clear();
 

@@ -92,17 +92,17 @@ pub fn send_message_to_peer(peer_addr: &SocketAddr, data: &[u8]) -> Result<(), N
     let mut handler = TcpStream::connect(peer_addr).map_err(|err| {
         NetworkError::Connect(format!("Failed to establish TCP connection: {:?}", err))
     })?;
-    let written = handler.write(data).map_err(|err| {
+    handler.write_all(data).map_err(|err| {
         NetworkError::Write(format!("Failed to write into TCP handler: {:?}", err))
     })?;
-    if written < data.len() {
-        return Err(NetworkError::Write(format!(
-            "Buffer was not written in full. {}/{}",
-            format_bytes_size(written),
-            format_bytes_size(data.len())
-        )));
-    }
-    debug_println!("Sent message via TCP: {:?}", format_bytes_size(written));
+    // if written < data.len() {
+    //     return Err(NetworkError::Write(format!(
+    //         "Buffer was not written in full. {}/{}",
+    //         format_bytes_size(written),
+    //         format_bytes_size(data.len())
+    //     )));
+    // }
+    debug_println!("Sent message via TCP: {:?}", format_bytes_size(data.len()));
 
     Ok(())
 }
