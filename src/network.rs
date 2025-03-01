@@ -8,7 +8,7 @@ use crate::{
     clipboard::Clipboard,
     debug_println,
     encode::{compose_message, MessageType},
-    utils::format_bytes_size,
+    utils::{format_bytes_size, write_progress},
     PORT,
 };
 
@@ -92,16 +92,19 @@ pub fn send_message_to_peer(peer_addr: &SocketAddr, data: &[u8]) -> Result<(), N
     let mut handler = TcpStream::connect(peer_addr).map_err(|err| {
         NetworkError::Connect(format!("Failed to establish TCP connection: {:?}", err))
     })?;
-    handler.write_all(data).map_err(|err| {
-        NetworkError::Write(format!("Failed to write into TCP handler: {:?}", err))
-    })?;
-    // if written < data.len() {
-    //     return Err(NetworkError::Write(format!(
-    //         "Buffer was not written in full. {}/{}",
-    //         format_bytes_size(written),
-    //         format_bytes_size(data.len())
-    //     )));
-    // }
+    // handler.write_all(data).map_err(|err| {
+    //     NetworkError::Write(format!("Failed to write into TCP handler: {:?}", err))
+    // })?;
+
+    let mut total_written = 0;
+    while total_written < data.len() {
+        match handler.write(&data[total_written..]) {
+            Ok(n) => total_written += n,
+            Err(e) => return Err(NetworkError::Write(format!("{:?}", e))),
+        }
+        write_progress(total_written, data.len());
+    }
+
     debug_println!("Sent message via TCP: {:?}", format_bytes_size(data.len()));
 
     Ok(())
@@ -130,10 +133,30 @@ pub fn listen_to_tcp(socket: &TcpListener, buff: &mut Vec<u8>) -> Result<usize, 
         }
         NetworkError::Read(format!("{:?}", err))
     })?;
+    let mut ok = true;
+    let mut buffer = vec![0; 1024];
+    let mut read: usize = 0;
+    while ok {
+        write_progress(read, 0);
+        let res = data.read(&mut buffer);
+        ok = res.is_ok();
+        buff.extend_from_slice(&buffer);
+        if res.is_ok() {
+            let curr_read = res.unwrap();
+            if curr_read == 0 {
+                break;
+            }
+            read += curr_read;
+        } else {
+            let err = res.unwrap_err();
+            if let ErrorKind::WouldBlock = err.kind() {
+                continue;
+            } else {
+                break;
+            }
+        }
+    }
 
-    let read = data
-        .read_to_end(buff)
-        .map_err(|err| NetworkError::Read(format!("{:?}", err)))?;
     debug_println!(
         "Received data via TCP from {:?}. Size: {}",
         _ip,

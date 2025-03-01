@@ -75,6 +75,14 @@ pub fn format_bytes_size(size: usize) -> String {
     }
 }
 
+pub fn write_progress(curr: usize, total: usize) {
+    println!(
+        "Transfering: {}/{}",
+        format_bytes_size(curr),
+        format_bytes_size(total)
+    )
+}
+
 // pub fn from_u8_to_u16(bytes: &[u8]) -> std::result::Result<Vec<u16>, ParseErrors> {
 //     unsafe {
 //         let my_u16_vec_bis: Vec<u16> = (bytes.align_to::<u16>().1)
