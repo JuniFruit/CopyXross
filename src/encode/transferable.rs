@@ -3,6 +3,7 @@ use std::str::FromStr;
 use crate::clipboard::ClipboardData;
 use crate::clipboard::StringType;
 use crate::debug_println;
+use crate::utils::format_bytes_size;
 
 use super::protocol::check_offset_bounds;
 use super::protocol::encode_chunks;
@@ -79,7 +80,10 @@ impl Transferable for ClipboardData {
         match chunk_header.as_str() {
             "XSTR" => {
                 let len = read_size(data, &mut o)?;
-                debug_println!("Reading string from clipboard. Length: {}", len);
+                debug_println!(
+                    "Reading string from clipboard. Length: {}",
+                    format_bytes_size(len)
+                );
 
                 read_header_expected(data, &mut o, "XTYP")?;
                 let s_type_len = read_size(data, &mut o)?;
@@ -101,7 +105,10 @@ impl Transferable for ClipboardData {
             }
             "XFIL" => {
                 let len = read_size(data, &mut o)?;
-                debug_println!("Reading file from clipboard. Length: {}", len);
+                debug_println!(
+                    "Reading file from clipboard. Length: {}",
+                    format_bytes_size(len)
+                );
                 read_header_expected(data, &mut o, "XFME")?;
 
                 let filename_size = read_size(data, &mut o)?;

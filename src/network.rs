@@ -80,7 +80,7 @@ pub fn listen_to_socket(socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
 pub fn send_message_to_socket(socket: &UdpSocket, target: SocketAddr, data: &[u8]) {
     match socket.send_to(data, target) {
         Ok(amt) => {
-            debug_println!("Sent packet size {} bytes", amt);
+            debug_println!("Sent packet size {} bytes", format_bytes_size(amt));
         }
         Err(e) => {
             debug_println!("Error sending message: {:?}", e)
@@ -98,10 +98,11 @@ pub fn send_message_to_peer(peer_addr: &SocketAddr, data: &[u8]) -> Result<(), N
     if written < data.len() {
         return Err(NetworkError::Write(format!(
             "Buffer was not written in full. {}/{}",
-            written,
-            data.len()
+            format_bytes_size(written),
+            format_bytes_size(data.len())
         )));
     }
+    debug_println!("Sent message via TCP: {:?}", format_bytes_size(written));
 
     Ok(())
 }
