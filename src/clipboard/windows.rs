@@ -65,6 +65,55 @@ impl WindowsClipboard {
             Ok(())
         }
     }
+    fn prepare_html_string(html: &str) -> String {
+        let mut output = String::new();
+
+        // Define the header template
+        let header = concat!(
+            "Version:1.0\r\n",
+            "StartHTML:<<<<<<<1\r\n",
+            "EndHTML:<<<<<<<2\r\n",
+            "StartFragment:<<<<<<<3\r\n",
+            "EndFragment:<<<<<<<4\r\n"
+        );
+
+        output.push_str(header);
+        let start_html = output.len();
+        if !html.contains("<html>") {
+            output.push_str("<html>");
+        }
+
+        output.push_str("<!--StartFragment-->");
+        let start_fragment = output.len();
+        if !html.contains("<body>") {
+            output.push_str("<body>");
+        }
+
+        output.push_str(html);
+        if !html.contains("</body>") {
+            output.push_str("</body>");
+        }
+        let end_fragment = output.len();
+
+        output.push_str("<!--EndFragment-->");
+        if !html.contains("</html>") {
+            output.push_str("</html>");
+        }
+        let end_html = output.len();
+
+        // Replace placeholders with formatted values
+        let replace_placeholder = |s: &mut String, placeholder: &str, value: usize| {
+            *s = s.replacen(placeholder, &format!("{:08}", value), 1);
+        };
+
+        replace_placeholder(&mut output, "<<<<<<<1", start_html);
+        replace_placeholder(&mut output, "<<<<<<<2", end_html);
+        replace_placeholder(&mut output, "<<<<<<<3", start_fragment);
+        replace_placeholder(&mut output, "<<<<<<<4", end_fragment);
+
+        output
+    }
+
     fn get_clipboard_data_handle(clipboard_type: UINT) -> Result<HANDLE, ClipboardError> {
         unsafe {
             let handle: HANDLE = GetClipboardData(clipboard_type);
@@ -211,27 +260,15 @@ impl WindowsClipboard {
                 }
                 StringType::Html => {
                     // Format HTML according to the Windows Clipboard HTML format specification
-                    let html_clipboard_format = format!(
-                        concat!(
-                            "Version:0.9\r\n",
-                            "StartHTML:00000097\r\n",
-                            "EndHTML:{end_html:08}\r\n",
-                            "StartFragment:{start_fragment:08}\r\n",
-                            "EndFragment:{end_fragment:08}\r\n",
-                            "<html><body>\r\n",
-                            "<!--StartFragment-->{content}<!--EndFragment-->\r\n",
-                            "</body></html>\r\n"
-                        ),
-                        start_fragment = 111,
-                        end_fragment = 111 + text.len(),
-                        end_html = 111 + text.len() + 19, // 19 extra bytes for the <html><body> tags
-                        content = String::from_utf8(text.to_vec()).map_err(|err| {
-                            ClipboardError::Write(format!(
-                                "Failed to decode string for writing: {:?}",
-                                err
-                            ))
-                        })?
-                    );
+                    let html_content = String::from_utf8(text.to_vec()).map_err(|err| {
+                        ClipboardError::Write(format!(
+                            "Failed to decode string for writing: {:?}",
+                            err
+                        ))
+                    })?;
+
+                    let html_clipboard_format =
+                        WindowsClipboard::prepare_html_string(&html_content);
 
                     // Convert to UTF-8 bytes
                     let utf8_bytes = html_clipboard_format.as_bytes();
@@ -243,10 +280,7 @@ impl WindowsClipboard {
                             err
                         ))
                     })?;
-                    let format_name = std::slice::from_raw_parts(
-                        format_name.as_bytes().as_ptr() as *const i8,
-                        format_name.as_bytes().len(),
-                    );
+
                     let html_format = RegisterClipboardFormatA(format_name.as_ptr());
                     if html_format == 0 {
                         return Err(ClipboardError::Write(format!(
