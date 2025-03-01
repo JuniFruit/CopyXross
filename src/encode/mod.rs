@@ -83,8 +83,8 @@
 mod protocol;
 mod transferable;
 
-use crate::clipboard::ClipboardData;
 use crate::debug_println;
+use crate::{clipboard::ClipboardData, utils::format_bytes_size};
 use protocol::{
     encode_chunks, encode_header, encode_size, read_data, read_header, read_header_expected,
     read_size, Chunk, EncodeError, ReaderOffset,
@@ -99,7 +99,7 @@ pub fn parse_message(data: &[u8]) -> Result<MessageType, ParseErrors> {
     read_header_expected(data, &mut reader, "XCOP")?;
     let file_size = read_size(data, &mut reader)?;
 
-    debug_println!("Reading message. Size: {:?}", file_size);
+    debug_println!("Reading message. Size: {:?}", format_bytes_size(file_size));
 
     while reader.offset <= data.len() {
         let header = read_header(data, &mut reader)?;

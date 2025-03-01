@@ -70,8 +70,8 @@ pub fn format_bytes_size(size: usize) -> String {
     if size < 1024 {
         format!("{} B", size)
     } else {
-        let mbs = size / (1024 * 1024);
-        format!("{:.1$} MB", mbs, 2)
+        let mbs: f32 = size as f32 / (1024.0 * 1024.0);
+        format!("{:.2} MB", mbs)
     }
 }
 
