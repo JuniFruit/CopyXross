@@ -140,13 +140,14 @@ pub fn listen_to_tcp(socket: &TcpListener, buff: &mut Vec<u8>) -> Result<usize, 
         write_progress(read, 0);
         let res = data.read(&mut buffer);
         ok = res.is_ok();
-        buff.extend_from_slice(&buffer);
+
         if res.is_ok() {
             let curr_read = res.unwrap();
             if curr_read == 0 {
                 break;
             }
             read += curr_read;
+            buff.extend_from_slice(&buffer[..curr_read]);
         } else {
             let err = res.unwrap_err();
             if let ErrorKind::WouldBlock = err.kind() {
