@@ -4,7 +4,7 @@ use std::ptr::copy_nonoverlapping;
 
 use crate::clipboard::StringType;
 use crate::debug_println;
-use crate::utils::{create_file, open_file};
+use crate::utils::{create_file, extract_plain_str_from_html, open_file};
 
 use super::{Clipboard, ClipboardData, ClipboardError};
 use dirs_next::desktop_dir;
@@ -112,6 +112,15 @@ impl WindowsClipboard {
         replace_placeholder(&mut output, "<<<<<<<4", end_fragment);
 
         output
+    }
+
+    fn convert_to_utf16(text: &[u8]) -> Result<Vec<u16>, ClipboardError> {
+        let mut utf16: Vec<u16> = String::from_utf8(text.to_vec())
+            .map_err(|err| ClipboardError::Write(format!("Could not decode string: {:?}", err)))?
+            .encode_utf16()
+            .collect();
+        utf16.push(0);
+        Ok(utf16)
     }
 
     fn get_clipboard_data_handle(clipboard_type: UINT) -> Result<HANDLE, ClipboardError> {
@@ -242,13 +251,7 @@ impl WindowsClipboard {
             }
             match s_type {
                 StringType::Utf8Plain => {
-                    let mut utf16: Vec<u16> = String::from_utf8(text.to_vec())
-                        .map_err(|err| {
-                            ClipboardError::Write(format!("Could not decode string: {:?}", err))
-                        })?
-                        .encode_utf16()
-                        .collect();
-                    utf16.push(0);
+                    let utf16 = WindowsClipboard::convert_to_utf16(&text)?;
                     let size_in_bytes = utf16.len() * size_of::<u16>();
 
                     WindowsClipboard::write_str_into_cp(
@@ -294,6 +297,27 @@ impl WindowsClipboard {
                         html_format,
                         size,
                         size,
+                    )?;
+
+                    let text = extract_plain_str_from_html(
+                        String::from_utf8(text.to_vec())
+                            .map_err(|err| {
+                                ClipboardError::Write(format!(
+                                    "Cannot create string from utf8: {:?}",
+                                    err
+                                ))
+                            })?
+                            .as_str(),
+                    );
+                    let utf16 = WindowsClipboard::convert_to_utf16(&text.as_bytes())?;
+
+                    let size_in_bytes = utf16.len() * size_of::<u16>();
+
+                    WindowsClipboard::write_str_into_cp(
+                        utf16.as_ptr(),
+                        CF_UNICODETEXT,
+                        size_in_bytes,
+                        utf16.len(),
                     )
                 }
             }
@@ -377,42 +401,25 @@ impl Clipboard for WindowsClipboard {
         res
     }
     fn read(&self) -> Result<ClipboardData, ClipboardError> {
-        unsafe {
-            // Open clipboard (NULL or GetDesktopWindow())
-            WindowsClipboard::open()?;
+        // Open clipboard (NULL or GetDesktopWindow())
+        WindowsClipboard::open()?;
 
-            let mut format = 0;
-            let mut latest_format = 0;
-
-            // Find the latest available clipboard format
-            while {
-                format = EnumClipboardFormats(format);
-                format != 0
-            } {
-                latest_format = format;
-            }
-
-            if cfg!(debug_assertions) {
-                WindowsClipboard::print_cp_types();
-            }
-
-            let cp_type = WindowsClipboard::get_clipboard_type()?;
-
-            // Handle different clipboard formats
-            let result = match cp_type {
-                ClipboardType::TEXT => Self::read_text(),
-                ClipboardType::FILE => Self::read_file(),
-                ClipboardType::IMAGE => Err(ClipboardError::Read(
-                    "Clipboard contains an image (DIB)".to_string(),
-                )),
-                _ => Err(ClipboardError::Read(format!(
-                    "Unsupported format: {}",
-                    latest_format
-                ))),
-            };
-
-            WindowsClipboard::close()?;
-            result
+        if cfg!(debug_assertions) {
+            WindowsClipboard::print_cp_types();
         }
+
+        let cp_type = WindowsClipboard::get_clipboard_type()?;
+
+        // Handle different clipboard formats
+        let result = match cp_type {
+            ClipboardType::TEXT => Self::read_text(),
+            ClipboardType::FILE => Self::read_file(),
+            ClipboardType::IMAGE => Err(ClipboardError::Read(
+                "Clipboard contains an image (DIB)".to_string(),
+            )),
+        };
+
+        WindowsClipboard::close()?;
+        result
     }
 }
