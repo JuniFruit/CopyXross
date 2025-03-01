@@ -83,6 +83,71 @@ pub fn write_progress(curr: usize, total: usize) {
     )
 }
 
+/// Return plain string from html. If html is invalid returns empty string
+pub fn extract_plain_str_from_html(html: &str) -> String {
+    let mut is_tag = false;
+    let mut result = String::new();
+    for c in html.chars() {
+        if c == '<' {
+            is_tag = true;
+            continue;
+        }
+
+        if c == '>' {
+            is_tag = false;
+            continue;
+        }
+        if !is_tag {
+            result.push(c);
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_plain_str_from_html() {
+        // Test case: basic HTML
+        assert_eq!(extract_plain_str_from_html("<b>Hello</b>"), "Hello");
+
+        // Test case: nested tags
+        assert_eq!(
+            extract_plain_str_from_html("<div><p>Test</p></div>"),
+            "Test"
+        );
+
+        // Test case: text with multiple tags
+        assert_eq!(
+            extract_plain_str_from_html("<h1>Title</h1> <p>Paragraph</p>"),
+            "Title Paragraph"
+        );
+
+        // Test case: HTML with attributes
+        assert_eq!(
+            extract_plain_str_from_html("<a href='https://example.com'>Link</a>"),
+            "Link"
+        );
+
+        // Test case: empty string
+        assert_eq!(extract_plain_str_from_html(""), "");
+
+        // Test case: plain text without tags
+        assert_eq!(extract_plain_str_from_html("Just text"), "Just text");
+
+        // Test case: incorrectly formatted HTML
+        assert_eq!(extract_plain_str_from_html("<b>Bold text"), "Bold text");
+
+        // Test case: multiple consecutive tags
+        assert_eq!(
+            extract_plain_str_from_html("<i><b>Styled</b></i>"),
+            "Styled"
+        );
+    }
+}
+
 // pub fn from_u8_to_u16(bytes: &[u8]) -> std::result::Result<Vec<u16>, ParseErrors> {
 //     unsafe {
 //         let my_u16_vec_bis: Vec<u16> = (bytes.align_to::<u16>().1)

@@ -4,6 +4,7 @@ use super::ClipboardError;
 use super::StringType;
 use crate::debug_println;
 use crate::utils::create_file;
+use crate::utils::extract_plain_str_from_html;
 use crate::utils::open_file;
 use dirs_next::desktop_dir;
 use objc::class;
@@ -274,7 +275,16 @@ impl MacosClipboard {
                     ))
                 })?;
                 // Convert Rust `&str` to `NSString`
-                let c_text = CString::new(text.as_str()).unwrap();
+                let mut c_text = CString::new(text.as_str()).map_err(|err| {
+                    ClipboardError::Write(format!("Failed to create C string: {:?}", err))
+                })?;
+
+                if s_type == StringType::Html {
+                    let plain_text = extract_plain_str_from_html(&text);
+                    c_text = CString::new(plain_text.as_str()).map_err(|err| {
+                        ClipboardError::Write(format!("Failed to create C string: {:?}", err))
+                    })?;
+                }
                 let ns_string: ObjectId =
                     msg_send![class!(NSString), stringWithUTF8String: c_text.as_ptr()];
 
