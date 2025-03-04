@@ -133,13 +133,11 @@ pub fn listen_to_tcp(socket: &TcpListener, buff: &mut Vec<u8>) -> Result<usize, 
         }
         NetworkError::Read(format!("{:?}", err))
     })?;
-    let mut ok = true;
     let mut buffer = vec![0; 1024];
     let mut read: usize = 0;
-    while ok {
+    loop {
         write_progress(read, 0);
         let res = data.read(&mut buffer);
-        ok = res.is_ok();
 
         if res.is_ok() {
             let curr_read = res.unwrap();
@@ -147,6 +145,7 @@ pub fn listen_to_tcp(socket: &TcpListener, buff: &mut Vec<u8>) -> Result<usize, 
                 break;
             }
             read += curr_read;
+
             buff.extend_from_slice(&buffer[..curr_read]);
         } else {
             let err = res.unwrap_err();
