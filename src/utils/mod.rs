@@ -1,4 +1,10 @@
-use std::fs;
+use std::{
+    ffi::{c_char, CStr},
+    fs,
+    sync::{Arc, Mutex, MutexGuard},
+    thread,
+    time::Duration,
+};
 
 const KX: u32 = 123456789;
 const KY: u32 = 362436069;
@@ -104,6 +110,69 @@ pub fn extract_plain_str_from_html(html: &str) -> String {
     result
 }
 
+pub fn attempt_get_lock<T, F>(p: &Arc<Mutex<T>>, op: F)
+where
+    F: FnOnce(MutexGuard<T>),
+{
+    let mut attempts = 0;
+    let max_attempts = 5;
+
+    loop {
+        match p.lock() {
+            Ok(p_l) => {
+                op(p_l);
+
+                break; // Success, exit loop
+            }
+            Err(_) => {
+                attempts += 1;
+                if attempts >= max_attempts {
+                    debug_println!(
+                        "Could not acquire lock after {} attempts. Giving up.",
+                        max_attempts
+                    );
+                    break;
+                }
+
+                let delay = Duration::from_millis(100 * (2_u64.pow(attempts))); // Exponential backoff
+                debug_println!("Data is locked. Retrying in {:?}...", delay);
+                thread::sleep(delay);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn logger(err: *mut c_char, reason: *mut c_char) {
+    unsafe {
+        let err = CStr::from_ptr(err).to_string_lossy();
+        let reason = CStr::from_ptr(reason).to_string_lossy();
+
+        println!("{:?}, {:?}", err, reason);
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(improper_ctypes)]
+extern "C" {
+    pub fn catch_and_log_exception(rust_callback: fn(*mut c_char, *mut c_char), block: fn());
+}
+
+// pub fn from_u8_to_u16(bytes: &[u8]) -> std::result::Result<Vec<u16>, ParseErrors> {
+//     unsafe {
+//         let my_u16_vec_bis: Vec<u16> = (bytes.align_to::<u16>().1)
+//             .to_vec()
+//             .iter()
+//             .map(|e| e >> 8 | (e & 0xff) << 8)
+//             .collect();
+//
+//         if my_u16_vec_bis.len() != bytes.len() / 2 {
+//             return Err(ParseErrors::InvalidStructure);
+//         }
+//
+//         Ok(my_u16_vec_bis)
+//     }
+// }
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,19 +216,3 @@ mod tests {
         );
     }
 }
-
-// pub fn from_u8_to_u16(bytes: &[u8]) -> std::result::Result<Vec<u16>, ParseErrors> {
-//     unsafe {
-//         let my_u16_vec_bis: Vec<u16> = (bytes.align_to::<u16>().1)
-//             .to_vec()
-//             .iter()
-//             .map(|e| e >> 8 | (e & 0xff) << 8)
-//             .collect();
-//
-//         if my_u16_vec_bis.len() != bytes.len() / 2 {
-//             return Err(ParseErrors::InvalidStructure);
-//         }
-//
-//         Ok(my_u16_vec_bis)
-//     }
-// }

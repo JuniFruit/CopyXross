@@ -1,8 +1,11 @@
+mod app;
 mod clipboard;
 mod encode;
 mod network;
 mod utils;
 
+use app::init_taskmenu;
+use app::TaskMenuOperations;
 use clipboard::new_clipboard;
 use clipboard::Clipboard;
 use encode::compose_message;
@@ -21,10 +24,10 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender;
-use std::sync::MutexGuard;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use utils::attempt_get_lock;
 
 const PORT: u16 = 53300;
 
@@ -45,6 +48,11 @@ fn main() {
         Arc::new(Mutex::new(HashMap::new()));
     let connection_map_clone = connection_map.clone();
     let cp = new_clipboard().unwrap();
+
+    let taskbar = init_taskmenu().unwrap();
+    taskbar.run();
+
+    // taskbar.run().unwrap();
 
     // getting my peer name
     let my_peer_name = format!("PC_num-{}", 42);
@@ -72,7 +80,9 @@ fn main() {
 
     let client_handler = thread::spawn(move || {
         thread::sleep(Duration::new(2, 0));
-        interact(_c_sender, connection_map_clone);
+        // taskbar.run().unwrap();
+        loop {}
+        // interact(_c_sender, connection_map_clone);
     });
 
     let mut tcp_buff: Vec<u8> = Vec::with_capacity(5024);
@@ -105,21 +115,21 @@ fn main() {
                 }
                 encode::MessageType::Xacn(_data) => {
                     println!("Ack got: {:?}", _data);
-                    attempt_write_lock(&connection_map, |mut m| {
+                    attempt_get_lock(&connection_map, |mut m| {
                         m.insert(ip_addr.ip(), _data);
                     });
                 }
                 encode::MessageType::Xcon(_data) => {
                     if ip_addr.ip() != my_local_ip {
                         println!("Connection got: {:?}", _data);
-                        attempt_write_lock(&connection_map, |mut m| {
+                        attempt_get_lock(&connection_map, |mut m| {
                             m.insert(ip_addr.ip(), _data);
                         });
                         send_message_to_socket(&socket, ip_addr, &ack_msg);
                     }
                 }
                 encode::MessageType::Xdis => {
-                    attempt_write_lock(&connection_map, |mut m| {
+                    attempt_get_lock(&connection_map, |mut m| {
                         m.remove(&ip_addr.ip());
                     });
                 }
@@ -188,88 +198,62 @@ fn main() {
 }
 
 fn interact(sender: Sender<SyncMessage>, connection_map: Arc<Mutex<HashMap<IpAddr, PeerData>>>) {
-    let mut input = String::new();
-    let usage_str = "Usage: cp <ip_addr>. Ex: cp 192.168.178.1";
-    let delim = "-".repeat(50);
+    let taskbar = init_taskmenu().unwrap();
 
-    println!("{}", delim);
-    println!("Copy from local machine (type 'exit' to quit):");
-    println!("{}", usage_str);
-    println!("Any input to update peers");
-    println!("{}", delim);
-
-    loop {
-        input.clear(); // Clear previous input
-        let mut keys: Vec<String> = vec![];
-        attempt_write_lock(&connection_map, |m| {
-            keys = m.keys().map(|ip| ip.to_string()).collect();
-        });
-
-        println!("Available peers: {:?}\r", keys);
-
-        std::io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read input");
-
-        let trimmed = input.trim();
-        if trimmed.eq_ignore_ascii_case("exit") {
-            println!("Goodbye!");
-            break;
-        }
-
-        let args: Vec<&str> = trimmed.split_whitespace().collect();
-        if args.len() != 2 {
-            continue;
-        }
-        let cmd = args[0];
-        let ip: Vec<u8> = args[1]
-            .split(".")
-            .map(|val| val.parse::<u8>().unwrap_or(0))
-            .collect();
-        if cmd != "cp" {
-            continue;
-        } else {
-            let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(ip[0], ip[1], ip[2], ip[3])), PORT);
-
-            println!("Sending copy cmd to {:?}", addr);
-            if let Err(err) = sender.send(SyncMessage::Cmd((addr, MessageType::Xcpy))) {
-                debug_println!(
-                    "Sending client command between threads has failed: {:?}",
-                    err
-                );
-            }
-        }
-    }
+    taskbar.run().unwrap();
 }
 
-fn attempt_write_lock<T, F>(p: &Arc<Mutex<T>>, op: F)
-where
-    F: FnOnce(MutexGuard<T>),
-{
-    let mut attempts = 0;
-    let max_attempts = 5;
-
-    loop {
-        match p.lock() {
-            Ok(p_l) => {
-                op(p_l);
-
-                break; // Success, exit loop
-            }
-            Err(_) => {
-                attempts += 1;
-                if attempts >= max_attempts {
-                    debug_println!(
-                        "Could not acquire lock after {} attempts. Giving up.",
-                        max_attempts
-                    );
-                    break;
-                }
-
-                let delay = Duration::from_millis(100 * (2_u64.pow(attempts))); // Exponential backoff
-                debug_println!("Data is locked. Retrying in {:?}...", delay);
-                thread::sleep(delay);
-            }
-        }
-    }
-}
+// fn interact(sender: Sender<SyncMessage>, connection_map: Arc<Mutex<HashMap<IpAddr, PeerData>>>) {
+//     let mut input = String::new();
+//     let usage_str = "Usage: cp <ip_addr>. Ex: cp 192.168.178.1";
+//     let delim = "-".repeat(50);
+//
+//     println!("{}", delim);
+//     println!("Copy from local machine (type 'exit' to quit):");
+//     println!("{}", usage_str);
+//     println!("Any input to update peers");
+//     println!("{}", delim);
+//
+//     loop {
+//         input.clear(); // Clear previous input
+//         let mut keys: Vec<String> = vec![];
+//         attempt_get_lock(&connection_map, |m| {
+//             keys = m.keys().map(|ip| ip.to_string()).collect();
+//         });
+//
+//         println!("Available peers: {:?}\r", keys);
+//
+//         std::io::stdin()
+//             .read_line(&mut input)
+//             .expect("Failed to read input");
+//
+//         let trimmed = input.trim();
+//         if trimmed.eq_ignore_ascii_case("exit") {
+//             println!("Goodbye!");
+//             break;
+//         }
+//
+//         let args: Vec<&str> = trimmed.split_whitespace().collect();
+//         if args.len() != 2 {
+//             continue;
+//         }
+//         let cmd = args[0];
+//         let ip: Vec<u8> = args[1]
+//             .split(".")
+//             .map(|val| val.parse::<u8>().unwrap_or(0))
+//             .collect();
+//         if cmd != "cp" {
+//             continue;
+//         } else {
+//             let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(ip[0], ip[1], ip[2], ip[3])), PORT);
+//
+//             println!("Sending copy cmd to {:?}", addr);
+//             if let Err(err) = sender.send(SyncMessage::Cmd((addr, MessageType::Xcpy))) {
+//                 debug_println!(
+//                     "Sending client command between threads has failed: {:?}",
+//                     err
+//                 );
+//             }
+//         }
+//     }
+// }
