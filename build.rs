@@ -9,22 +9,34 @@ fn main() {
 
         let objc_code = r#"
         #import <Foundation/Foundation.h>
+        typedef struct {
+            void *result;
+            char *error;
+        } RustResult;
 
-        void catch_and_log_exception(void (*rust_callback)(char*, char*), void (*block)(void)) {
+        RustResult catch_and_log_exception(void* (*block)(void*), void* args) {
+            RustResult res;
+            res.result = NULL;
+            res.error = NULL;
             @try {
-                block(); // Execute the Rust function that may trigger an exception
+                res.result = block(args); // Execute the Rust function that may trigger an exception
+                return res;
             } @catch (NSException *exception) {
-                const NSString *name_s = [exception name];
-                const NSString *reason_s = [exception reason];
-                const char *name = [name_s UTF8String];
-                const char *reason = [reason_s UTF8String];
+                // const NSString *name_s = [exception name];
+                // const NSString *reason_s = [exception reason];
+                // const char *name = [name_s UTF8String];
+                // const char *reason = [reason_s UTF8String];
                 // Ensure a C copy of the strings is passed
-                char *name_c = strdup(name);
-                char *reason_c = strdup(reason);
-                rust_callback(name_c, reason_c); // Call the Rust logging function
-
-                free(name_c);
-                free(reason_c);
+                res.error = exception;
+                return res;
+                // char *name_c = strdup(name);
+                // char *reason_c = strdup(reason);
+                // rust_callback(name_c, reason_c); // Call the Rust logging function
+                //
+                // free(name_c);
+                // free(reason_c);
+                // res.
+                // return 
             }
         }
         "#;
