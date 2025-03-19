@@ -164,3 +164,8 @@ pub fn listen_to_tcp(socket: &TcpListener, buff: &mut Vec<u8>) -> Result<usize, 
     );
     Ok(read)
 }
+pub fn send_bye_packet(socket: &UdpSocket, target: SocketAddr) {
+    debug_println!("Sending BYE packet...");
+    let disconnect_msg = compose_message(&MessageType::Xdis, PROTOCOL_VER).unwrap();
+    send_message_to_socket(socket, target, &disconnect_msg);
+}

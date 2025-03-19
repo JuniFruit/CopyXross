@@ -5,6 +5,7 @@ mod network;
 mod utils;
 
 use app::init_taskmenu;
+use app::Event;
 use app::TaskMenuOperations;
 use clipboard::new_clipboard;
 use clipboard::Clipboard;
@@ -16,20 +17,26 @@ use local_ip_address::local_ip;
 use network::init_listeners;
 use network::listen_to_socket;
 use network::listen_to_tcp;
+use network::send_bye_packet;
 use network::send_message_to_peer;
 use network::send_message_to_socket;
 use network::NetworkError;
 use network::PROTOCOL_VER;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::str::FromStr;
 use std::sync::mpsc::channel;
+use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
 use utils::attempt_get_lock;
+use utils::format_copy_button_title;
 
 const PORT: u16 = 53300;
+const BROADCAST_ADDR: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)), PORT);
 
 #[derive(PartialEq, Debug)]
 #[allow(dead_code)]
@@ -40,19 +47,57 @@ enum SyncMessage {
 
 fn main() {
     println!("Starting...");
+    let (_c_sender, _c_receiver) = channel::<SyncMessage>();
+    let arc_c_sender = Arc::new(Mutex::new(_c_sender));
+    let c_sender = arc_c_sender.clone();
+
+    let app = Arc::new(init_taskmenu().unwrap());
+    let app_arc = app.clone();
+    let core_thread = thread::spawn(move || core_handle(app_arc, arc_c_sender, _c_receiver));
+
+    if core_thread.is_finished() {
+        panic!("Program failed to start successfully");
+    }
+
+    app.run().unwrap();
+    attempt_get_lock(&c_sender, |sender| {
+        println!("Terminating the program.");
+        let _ = sender.send(SyncMessage::Stop);
+    });
+    let res = core_thread.join();
+    match res {
+        Err(err) => {
+            println!("Program finished with error: {:?}", err);
+        }
+        Ok(_) => {
+            println!("Program finished successfully");
+        }
+    }
+}
+
+fn core_handle(
+    app_menu: Arc<impl TaskMenuOperations>,
+    c_sender: Arc<Mutex<Sender<SyncMessage>>>,
+    c_receiver: Receiver<SyncMessage>,
+) {
     println!("Scanning network...");
+    let copy_event_handler = Box::new(move |e: Event| {
+        if e.is_none() {
+            return;
+        }
+        let ip_str = e.unwrap();
+        let socket_addr = SocketAddr::new(
+            IpAddr::from_str(&ip_str).unwrap_or(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
+            PORT,
+        );
+        attempt_get_lock(&c_sender, |sender| {
+            let _ = sender.send(SyncMessage::Cmd((socket_addr, MessageType::Xcpy)));
+        });
+    });
     let my_local_ip = local_ip().expect("Could not determine my ip");
     println!("This is my local IP address: {:?}", my_local_ip);
-    let (_c_sender, _c_receiver) = channel::<SyncMessage>();
-    let connection_map: Arc<Mutex<HashMap<IpAddr, PeerData>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    let connection_map_clone = connection_map.clone();
+    let mut connection_map: HashMap<IpAddr, PeerData> = HashMap::new();
     let cp = new_clipboard().unwrap();
-
-    let taskbar = init_taskmenu().unwrap();
-    taskbar.run();
-
-    // taskbar.run().unwrap();
 
     // getting my peer name
     let my_peer_name = format!("PC_num-{}", 42);
@@ -73,34 +118,17 @@ fn main() {
         .unwrap();
 
     // bind listener
-    let broadcast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)), PORT);
     let (socket, tcp_listener) = init_listeners(my_local_ip).unwrap();
 
-    send_message_to_socket(&socket, broadcast_addr, &greeting_message);
-
-    let client_handler = thread::spawn(move || {
-        thread::sleep(Duration::new(2, 0));
-        // taskbar.run().unwrap();
-        loop {}
-        // interact(_c_sender, connection_map_clone);
-    });
+    send_message_to_socket(&socket, BROADCAST_ADDR, &greeting_message);
 
     let mut tcp_buff: Vec<u8> = Vec::with_capacity(5024);
     // main listener loop
     loop {
-        if client_handler.is_finished() {
-            let c_res = client_handler.join();
-
-            if c_res.is_err() {
-                println!("Program finished with error: {:?}", c_res.unwrap_err());
-            }
-
-            break;
-        }
         if !tcp_buff.is_empty() {
             tcp_buff.clear();
         }
-        let client_res = _c_receiver.try_recv();
+        let client_res = c_receiver.try_recv();
         let res = listen_to_socket(&socket);
         let tcp_res = listen_to_tcp(&tcp_listener, &mut tcp_buff);
         if res.is_some() {
@@ -115,23 +143,34 @@ fn main() {
                 }
                 encode::MessageType::Xacn(_data) => {
                     println!("Ack got: {:?}", _data);
-                    attempt_get_lock(&connection_map, |mut m| {
-                        m.insert(ip_addr.ip(), _data);
-                    });
+                    let p_name = _data.peer_name.clone();
+
+                    connection_map.insert(ip_addr.ip(), _data);
+                    let _ = app_menu.add_menu_item(
+                        format_copy_button_title(&p_name, &ip_addr.to_string()),
+                        copy_event_handler.clone(),
+                    );
                 }
                 encode::MessageType::Xcon(_data) => {
                     if ip_addr.ip() != my_local_ip {
                         println!("Connection got: {:?}", _data);
-                        attempt_get_lock(&connection_map, |mut m| {
-                            m.insert(ip_addr.ip(), _data);
-                        });
+                        let p_name = _data.peer_name.clone();
+
+                        connection_map.insert(ip_addr.ip(), _data);
                         send_message_to_socket(&socket, ip_addr, &ack_msg);
+                        let _ = app_menu.add_menu_item(
+                            format_copy_button_title(&p_name, &ip_addr.to_string()),
+                            copy_event_handler.clone(),
+                        );
                     }
                 }
                 encode::MessageType::Xdis => {
-                    attempt_get_lock(&connection_map, |mut m| {
-                        m.remove(&ip_addr.ip());
-                    });
+                    if let Some(data) = connection_map.remove(&ip_addr.ip()) {
+                        let _ = app_menu.remove_menu_item(format_copy_button_title(
+                            &data.peer_name,
+                            &ip_addr.to_string(),
+                        ));
+                    }
                 }
                 encode::MessageType::Xcpy => {
                     let cp_buffer_res = cp.read();
@@ -178,82 +217,22 @@ fn main() {
         if client_res.is_ok() {
             let msg = client_res.unwrap();
             #[allow(clippy::collapsible_match)]
-            if let SyncMessage::Cmd((target, msg_cmd)) = msg {
-                if let MessageType::Xcpy = msg_cmd {
-                    let cpy_cmd = compose_message(&MessageType::Xcpy, PROTOCOL_VER);
-                    if let Ok(data) = cpy_cmd {
-                        send_message_to_socket(&socket, target, &data);
-                    } else {
-                        println!("Failed to compose message: {:?}", cpy_cmd.unwrap_err());
+            match msg {
+                SyncMessage::Cmd((target, msg_cmd)) => {
+                    if let MessageType::Xcpy = msg_cmd {
+                        let cpy_cmd = compose_message(&MessageType::Xcpy, PROTOCOL_VER);
+                        if let Ok(data) = cpy_cmd {
+                            send_message_to_socket(&socket, target, &data);
+                        } else {
+                            println!("Failed to compose message: {:?}", cpy_cmd.unwrap_err());
+                        }
                     }
                 }
-            }
+                SyncMessage::Stop => {
+                    break;
+                }
+            };
         }
     }
-    tcp_buff.clear();
-
-    let disconnect_msg = compose_message(&MessageType::Xdis, PROTOCOL_VER).unwrap();
-    send_message_to_socket(&socket, broadcast_addr, &disconnect_msg);
-    println!("Program finished successfully");
+    send_bye_packet(&socket, BROADCAST_ADDR);
 }
-
-fn interact(sender: Sender<SyncMessage>, connection_map: Arc<Mutex<HashMap<IpAddr, PeerData>>>) {
-    let taskbar = init_taskmenu().unwrap();
-
-    taskbar.run().unwrap();
-}
-
-// fn interact(sender: Sender<SyncMessage>, connection_map: Arc<Mutex<HashMap<IpAddr, PeerData>>>) {
-//     let mut input = String::new();
-//     let usage_str = "Usage: cp <ip_addr>. Ex: cp 192.168.178.1";
-//     let delim = "-".repeat(50);
-//
-//     println!("{}", delim);
-//     println!("Copy from local machine (type 'exit' to quit):");
-//     println!("{}", usage_str);
-//     println!("Any input to update peers");
-//     println!("{}", delim);
-//
-//     loop {
-//         input.clear(); // Clear previous input
-//         let mut keys: Vec<String> = vec![];
-//         attempt_get_lock(&connection_map, |m| {
-//             keys = m.keys().map(|ip| ip.to_string()).collect();
-//         });
-//
-//         println!("Available peers: {:?}\r", keys);
-//
-//         std::io::stdin()
-//             .read_line(&mut input)
-//             .expect("Failed to read input");
-//
-//         let trimmed = input.trim();
-//         if trimmed.eq_ignore_ascii_case("exit") {
-//             println!("Goodbye!");
-//             break;
-//         }
-//
-//         let args: Vec<&str> = trimmed.split_whitespace().collect();
-//         if args.len() != 2 {
-//             continue;
-//         }
-//         let cmd = args[0];
-//         let ip: Vec<u8> = args[1]
-//             .split(".")
-//             .map(|val| val.parse::<u8>().unwrap_or(0))
-//             .collect();
-//         if cmd != "cp" {
-//             continue;
-//         } else {
-//             let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(ip[0], ip[1], ip[2], ip[3])), PORT);
-//
-//             println!("Sending copy cmd to {:?}", addr);
-//             if let Err(err) = sender.send(SyncMessage::Cmd((addr, MessageType::Xcpy))) {
-//                 debug_println!(
-//                     "Sending client command between threads has failed: {:?}",
-//                     err
-//                 );
-//             }
-//         }
-//     }
-// }
