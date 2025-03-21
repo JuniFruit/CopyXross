@@ -9,7 +9,6 @@ use crate::{
     debug_println,
     encode::{compose_message, MessageType},
     utils::{format_bytes_size, write_progress},
-    PORT,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -22,6 +21,10 @@ pub enum NetworkError {
 }
 
 pub const PROTOCOL_VER: u32 = 1;
+pub const PORT: u16 = 53300;
+
+pub const MULTICAST_IP: Ipv4Addr = Ipv4Addr::new(239, 255, 255, 250);
+pub const BROADCAST_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(MULTICAST_IP), PORT);
 
 #[allow(dead_code)]
 pub fn debug_send(_socket: &UdpSocket, cp: &impl Clipboard) {
@@ -113,13 +116,15 @@ pub fn send_message_to_peer(peer_addr: &SocketAddr, data: &[u8]) -> Result<(), N
 pub fn init_listeners(my_ip: IpAddr) -> Result<(UdpSocket, TcpListener), NetworkError> {
     let bind = SocketAddr::new(my_ip, PORT);
     let s = socket(bind).map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
-    s.set_broadcast(true)
-        .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
+    // s.set_broadcast(true)
+    //     .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
     s.set_read_timeout(Some(Duration::new(1, 0)))
         .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
     s.set_write_timeout(Some(Duration::new(1, 0)))
         .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
 
+    s.join_multicast_v4(&MULTICAST_IP, &my_ip.to_string().parse().unwrap())
+        .map_err(|err| NetworkError::Connect(format!("Could not join multicast: {:?}", err)))?;
     let tcp = TcpListener::bind(bind).map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
     tcp.set_nonblocking(true)
         .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;

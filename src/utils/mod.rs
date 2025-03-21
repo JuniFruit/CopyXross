@@ -110,6 +110,14 @@ pub fn extract_plain_str_from_html(html: &str) -> String {
     result
 }
 
+#[cfg(debug_assertions)]
+pub struct DebugDrop;
+impl Drop for DebugDrop {
+    fn drop(&mut self) {
+        println!("Value was dropped!");
+    }
+}
+
 pub fn attempt_get_lock<T, F>(p: &Mutex<T>, op: F)
 where
     F: FnOnce(MutexGuard<T>),

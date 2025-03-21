@@ -7,6 +7,7 @@ use std::sync::Mutex;
 
 use objc::class;
 use objc::msg_send;
+use objc::rc::autoreleasepool;
 use objc::runtime::Object;
 use objc::runtime::Sel;
 use objc::sel;
@@ -26,26 +27,30 @@ type ObjectId = *mut Object;
 #[allow(unexpected_cfgs)]
 extern "C" fn menu_item_clicked(this: &Object, _cmd: Sel, sender: ObjectId) {
     unsafe {
-        let title: ObjectId = msg_send![sender, title];
-        let cstr: *const i8 = msg_send![title, UTF8String];
+        autoreleasepool(|| {
+            let title: ObjectId = msg_send![sender, title];
+            let cstr: *const i8 = msg_send![title, UTF8String];
 
-        if !title.is_null() && !cstr.is_null() {
-            let handlers_ptr = *this.get_ivar::<ObjectId>("handlers_ptr");
-            if handlers_ptr.is_null() {
-                debug_println!("Handlers pointer is null");
-                return;
-            }
-            let handlers_ptr: &Mutex<HashMap<String, CallbackFn>> =
-                &*(handlers_ptr as *mut Mutex<HashMap<String, CallbackFn>>);
-            let key = CStr::from_ptr(cstr).to_string_lossy().to_string();
+            if !title.is_null() && !cstr.is_null() {
+                let handlers_ptr = *this.get_ivar::<ObjectId>("handlers_ptr");
 
-            attempt_get_lock(handlers_ptr, |m| {
-                let handler = m.get(&key);
-                if let Some(cb) = handler {
-                    cb(Some(key))
+                if handlers_ptr.is_null() {
+                    debug_println!("Handlers pointer is null");
+                    return;
                 }
-            });
-        }
+                let handlers_ptr: &Mutex<HashMap<String, CallbackFn>> =
+                    &*(handlers_ptr as *mut Mutex<HashMap<String, CallbackFn>>);
+                let key = CStr::from_ptr(cstr).to_string_lossy().to_string();
+
+                attempt_get_lock(handlers_ptr, move |m| {
+                    let handler = m.get(&key);
+
+                    if let Some(cb) = handler {
+                        cb(Some(key));
+                    }
+                });
+            }
+        })
     }
 }
 
@@ -142,37 +147,40 @@ impl TaskMenuOperations for TaskMenuBar {
 
     fn add_menu_item(&self, btn_title: String, on_click: CallbackFn) -> Result<(), TaskMenuError> {
         unsafe {
-            let menu = self.menu_ref;
-            if menu.is_null() {
-                return Err(TaskMenuError::Unexpected("Menu ref is null".to_string()));
+            let boxed: Box<(String, [ObjectId; 2])> =
+                Box::new((btn_title.clone(), [self.menu_ref, self.app_delegate]));
+
+            let result = catch_and_log_exception(
+                |args| {
+                    let ptr_arr = Box::from_raw(args as *mut (String, [ObjectId; 2]));
+                    let btn_title = ptr_arr.0;
+                    let menu = ptr_arr.1[0];
+                    let app_delegate = ptr_arr.1[1];
+
+                    let item_title = TaskMenuBar::string_to_nsstring(&btn_title).unwrap();
+                    let menu_item: ObjectId = msg_send![class!(NSMenuItem), new];
+
+                    let _: () = msg_send![menu_item, setTitle: item_title];
+
+                    // Set target & action
+
+                    let _: () = msg_send![menu_item, setTarget: app_delegate];
+                    let _: () = msg_send![menu_item, setAction: sel!(menu_item_clicked:)];
+
+                    // Add item to menu
+                    let _: () = msg_send![menu, addItem: menu_item];
+                    ptr::null_mut::<std::ffi::c_void>()
+                },
+                Box::into_raw(boxed) as *mut std::ffi::c_void,
+            );
+            if !result.error.is_null() {
+                let err = get_error(result.error as ObjectId);
+                return Err(TaskMenuError::Unexpected(err));
             }
-
-            let item_title = TaskMenuBar::string_to_nsstring(&btn_title)?;
-            let menu_item: ObjectId = msg_send![class!(NSMenuItem), new];
-
-            if menu_item.is_null() {
-                return Err(TaskMenuError::Init(
-                    "Menu item failed to instantiate".to_string(),
-                ));
-            }
-
-            let _: () = msg_send![menu_item, setTitle: item_title];
 
             attempt_get_lock(&self.handlers, |mut h_m| {
                 h_m.insert(btn_title, on_click);
             });
-
-            // Set target & action
-            let app_delegate = self.app_delegate;
-            if app_delegate.is_null() {
-                return Err(TaskMenuError::Unexpected("AppDelegate is null".to_string()));
-            }
-
-            let _: () = msg_send![menu_item, setTarget: app_delegate];
-            let _: () = msg_send![menu_item, setAction: sel!(menu_item_clicked:)];
-
-            // Add item to menu
-            let _: () = msg_send![menu, addItem: menu_item];
 
             Ok(())
         }

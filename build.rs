@@ -11,7 +11,7 @@ fn main() {
         #import <Foundation/Foundation.h>
         typedef struct {
             void *result;
-            char *error;
+            void *error;
         } RustResult;
 
         RustResult catch_and_log_exception(void* (*block)(void*), void* args) {

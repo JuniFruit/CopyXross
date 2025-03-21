@@ -21,6 +21,8 @@ use network::send_bye_packet;
 use network::send_message_to_peer;
 use network::send_message_to_socket;
 use network::NetworkError;
+use network::BROADCAST_ADDR;
+use network::PORT;
 use network::PROTOCOL_VER;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -33,10 +35,6 @@ use std::sync::Mutex;
 use std::thread;
 use utils::attempt_get_lock;
 use utils::format_copy_button_title;
-
-const PORT: u16 = 53300;
-const BROADCAST_ADDR: SocketAddr =
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)), PORT);
 
 #[derive(PartialEq, Debug)]
 #[allow(dead_code)]
