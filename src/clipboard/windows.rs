@@ -4,22 +4,38 @@ use std::ptr::copy_nonoverlapping;
 
 use crate::clipboard::StringType;
 use crate::debug_println;
-use crate::utils::{create_file, extract_plain_str_from_html, open_file};
+use crate::utils::create_file;
+use crate::utils::extract_plain_str_from_html;
+use crate::utils::open_file;
+use crate::utils::windows::WindowsError;
 
 use super::{Clipboard, ClipboardData, ClipboardError};
 use dirs_next::desktop_dir;
 use winapi::shared::minwindef::UINT;
-use winapi::shared::ntdef::{FALSE, NULL};
+use winapi::shared::ntdef::FALSE;
+use winapi::shared::ntdef::NULL;
 use winapi::shared::windef::HWND__;
-use winapi::um::errhandlingapi::GetLastError;
-use winapi::um::shellapi::{DragQueryFileW, HDROP};
-use winapi::um::winbase::{GlobalAlloc, GlobalFree, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+use winapi::um::shellapi::DragQueryFileW;
+use winapi::um::shellapi::HDROP;
+use winapi::um::winbase::GlobalAlloc;
+use winapi::um::winbase::GlobalFree;
+use winapi::um::winbase::GlobalLock;
+use winapi::um::winbase::GlobalUnlock;
+
+use winapi::um::winbase::GMEM_MOVEABLE;
 use winapi::um::winnt::HANDLE;
-use winapi::um::winuser::{
-    CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData,
-    GetClipboardFormatNameA, IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatA,
-    SetClipboardData, CF_DIB, CF_HDROP, CF_UNICODETEXT,
-};
+use winapi::um::winuser::EmptyClipboard;
+use winapi::um::winuser::EnumClipboardFormats;
+use winapi::um::winuser::GetClipboardData;
+use winapi::um::winuser::GetClipboardFormatNameA;
+use winapi::um::winuser::IsClipboardFormatAvailable;
+use winapi::um::winuser::OpenClipboard;
+use winapi::um::winuser::RegisterClipboardFormatA;
+use winapi::um::winuser::SetClipboardData;
+use winapi::um::winuser::CF_HDROP;
+use winapi::um::winuser::CF_UNICODETEXT;
+use winapi::um::winuser::{CloseClipboard, CF_DIB};
+
 enum ClipboardType {
     TEXT,
     FILE,
@@ -127,9 +143,9 @@ impl WindowsClipboard {
         unsafe {
             let handle: HANDLE = GetClipboardData(clipboard_type);
             if handle.is_null() {
-                let last_err = GetLastError();
+                let last_err = WindowsError::from_last_error();
                 return Err(ClipboardError::Read(format!(
-                    "Failed to get clipboard data. Err: {}",
+                    "Failed to get clipboard data. Err: {:?}",
                     last_err
                 )));
             }
@@ -246,7 +262,7 @@ impl WindowsClipboard {
             if EmptyClipboard() == FALSE.into() {
                 return Err(ClipboardError::Write(format!(
                     "Failed to clear clipboard: {:?}",
-                    GetLastError()
+                    WindowsError::from_last_error()
                 )));
             }
             match s_type {
@@ -288,7 +304,7 @@ impl WindowsClipboard {
                     if html_format == 0 {
                         return Err(ClipboardError::Write(format!(
                             "Failed to register clipboard format: {:?}",
-                            GetLastError()
+                            WindowsError::from_last_error()
                         )));
                     }
 
@@ -351,7 +367,7 @@ impl WindowsClipboard {
                 GlobalFree(hmem);
                 return Err(ClipboardError::Write(format!(
                     "Failed to set clipboard data: {:?}",
-                    GetLastError()
+                    WindowsError::from_last_error()
                 )));
             }
 

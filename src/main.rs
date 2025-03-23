@@ -33,6 +33,7 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
+use std::time::Duration;
 use utils::attempt_get_lock;
 use utils::format_copy_button_title;
 
@@ -57,7 +58,12 @@ fn main() {
         panic!("Program failed to start successfully");
     }
 
-    app.run().unwrap();
+    let res = app.run();
+
+    if res.is_err() {
+        println!("Error: {:?}", res.unwrap_err());
+    }
+
     attempt_get_lock(&c_sender, |sender| {
         println!("Terminating the program.");
         let _ = sender.send(SyncMessage::Stop);
@@ -79,6 +85,7 @@ fn core_handle(
     c_receiver: Receiver<SyncMessage>,
 ) {
     println!("Scanning network...");
+    thread::sleep(Duration::new(10, 0));
     let copy_event_handler = Box::new(move |e: Event| {
         if e.is_none() {
             return;

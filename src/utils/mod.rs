@@ -1,10 +1,13 @@
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
-use std::fs;
+use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
+use std::{env, fs};
 
 const KX: u32 = 123456789;
 const KY: u32 = 362436069;
@@ -87,6 +90,13 @@ pub fn write_progress(curr: usize, total: usize) {
         format_bytes_size(curr),
         format_bytes_size(total)
     )
+}
+
+pub fn get_asset_path(file: &str) -> Result<PathBuf> {
+    let mut curr_dir = env::current_dir()?;
+    curr_dir.push("assets");
+    curr_dir.push(file);
+    Ok(curr_dir)
 }
 
 /// Return plain string from html. If html is invalid returns empty string
