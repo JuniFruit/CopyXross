@@ -1,5 +1,7 @@
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "windows")]
+mod windows;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -21,6 +23,8 @@ pub trait TaskMenuOperations: Sized + Sync + Send {
 
 #[cfg(target_os = "macos")]
 use macos::TaskMenuBar as PlatformTaskBar;
+#[cfg(target_os = "windows")]
+use windows::TaskMenuBar as PlatformTaskBar;
 
 pub fn init_taskmenu() -> Result<impl TaskMenuOperations, TaskMenuError> {
     let bar = PlatformTaskBar::init()?;
