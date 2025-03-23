@@ -5,7 +5,6 @@ use std::{
 };
 
 use crate::{
-    clipboard::Clipboard,
     debug_println,
     encode::{compose_message, MessageType},
     utils::{format_bytes_size, write_progress},
@@ -25,21 +24,6 @@ pub const PORT: u16 = 53300;
 
 pub const MULTICAST_IP: Ipv4Addr = Ipv4Addr::new(239, 255, 255, 250);
 pub const BROADCAST_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(MULTICAST_IP), PORT);
-
-#[allow(dead_code)]
-pub fn debug_send(_socket: &UdpSocket, cp: &impl Clipboard) {
-    let addr = IpAddr::V4(Ipv4Addr::new(172, 20, 10, 6));
-    let addr = SocketAddr::new(addr, PORT);
-    let mut handler = TcpStream::connect(addr).unwrap();
-
-    let cp_buff = cp.read().unwrap();
-    let msg = compose_message(&MessageType::Xpst(cp_buff), PROTOCOL_VER).unwrap();
-
-    let s = handler.write(&msg).unwrap();
-    println!("Written to TCP: {}", s);
-
-    // send_message_to_socket(socket, addr, &msg);
-}
 
 pub fn socket(listen_on: SocketAddr) -> std::io::Result<UdpSocket> {
     let attempt = UdpSocket::bind(listen_on);

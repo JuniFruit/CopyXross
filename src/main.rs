@@ -25,6 +25,8 @@ use network::BROADCAST_ADDR;
 use network::PORT;
 use network::PROTOCOL_VER;
 use std::collections::HashMap;
+use std::net::TcpListener;
+use std::net::UdpSocket;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::mpsc::channel;
@@ -33,7 +35,6 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
 use utils::attempt_get_lock;
 use utils::format_copy_button_title;
 
@@ -50,7 +51,7 @@ fn main() {
     let arc_c_sender = Arc::new(Mutex::new(_c_sender));
     let c_sender = arc_c_sender.clone();
 
-    let app = Arc::new(init_taskmenu().unwrap());
+    let app = Arc::new(init_taskmenu().expect("Init error"));
     let app_arc = app.clone();
     let core_thread = thread::spawn(move || core_handle(app_arc, arc_c_sender, _c_receiver));
 
@@ -58,11 +59,7 @@ fn main() {
         panic!("Program failed to start successfully");
     }
 
-    let res = app.run();
-
-    if res.is_err() {
-        println!("Error: {:?}", res.unwrap_err());
-    }
+    app.run().expect("App failed to run");
 
     attempt_get_lock(&c_sender, |sender| {
         println!("Terminating the program.");
@@ -84,8 +81,6 @@ fn core_handle(
     c_sender: Arc<Mutex<Sender<SyncMessage>>>,
     c_receiver: Receiver<SyncMessage>,
 ) {
-    println!("Scanning network...");
-    thread::sleep(Duration::new(10, 0));
     let copy_event_handler = Box::new(move |e: Event| {
         if e.is_none() {
             return;
@@ -99,8 +94,6 @@ fn core_handle(
             let _ = sender.send(SyncMessage::Cmd((socket_addr, MessageType::Xcpy)));
         });
     });
-    let my_local_ip = local_ip().expect("Could not determine my ip");
-    println!("This is my local IP address: {:?}", my_local_ip);
     let mut connection_map: HashMap<IpAddr, PeerData> = HashMap::new();
     let cp = new_clipboard().unwrap();
 
@@ -109,23 +102,16 @@ fn core_handle(
     let my_peer_data = encode::PeerData {
         peer_name: my_peer_name,
     };
-    // creating greeting message to send to all peers
-    let greeting_message = compose_message(&MessageType::Xcon(my_peer_data.clone()), PROTOCOL_VER)
-        .map_err(|err| {
-            println!("Failed to compose a message: {:?}", err);
-        })
-        .unwrap();
-    // creating acknowledgment msg to response to all peers
-    let ack_msg = compose_message(&MessageType::Xacn(my_peer_data.clone()), PROTOCOL_VER)
-        .map_err(|err| {
-            println!("Failed to compose an ack message: {:?}.", err);
-        })
-        .unwrap();
 
     // bind listener
-    let (socket, tcp_listener) = init_listeners(my_local_ip).unwrap();
-
-    send_message_to_socket(&socket, BROADCAST_ADDR, &greeting_message);
+    let (my_local_ip, socket, tcp_listener) = bind_network();
+    {
+        // creating greeting message to send to all peers
+        let greeting_message =
+            compose_message(&MessageType::Xcon(my_peer_data.clone()), PROTOCOL_VER)
+                .expect("Failed to compose greeting msg");
+        send_message_to_socket(&socket, BROADCAST_ADDR, &greeting_message);
+    }
 
     let mut tcp_buff: Vec<u8> = Vec::with_capacity(5024);
     // main listener loop
@@ -160,9 +146,17 @@ fn core_handle(
                     if ip_addr.ip() != my_local_ip {
                         println!("Connection got: {:?}", _data);
                         let p_name = _data.peer_name.clone();
+                        // creating acknowledgment msg to response to all peers
+                        let ack_msg =
+                            compose_message(&MessageType::Xacn(my_peer_data.clone()), PROTOCOL_VER);
+                        if let Ok(ack_msg) = ack_msg {
+                            send_message_to_socket(&socket, ip_addr, &ack_msg);
+                        } else {
+                            println!("Failed to compose ack msg: {:?}", ack_msg.unwrap_err());
+                        }
 
                         connection_map.insert(ip_addr.ip(), _data);
-                        send_message_to_socket(&socket, ip_addr, &ack_msg);
+
                         let _ = app_menu.add_menu_item(
                             format_copy_button_title(&p_name, &ip_addr.to_string()),
                             copy_event_handler.clone(),
@@ -240,4 +234,13 @@ fn core_handle(
         }
     }
     send_bye_packet(&socket, BROADCAST_ADDR);
+}
+
+fn bind_network() -> (IpAddr, UdpSocket, TcpListener) {
+    println!("Binding listeners...");
+    let my_local_ip = local_ip().unwrap();
+    println!("This is my local IP address: {:?}", my_local_ip);
+    // bind listener
+    let (socket, tcp) = init_listeners(my_local_ip).expect("Could not initiate network");
+    (my_local_ip, socket, tcp)
 }

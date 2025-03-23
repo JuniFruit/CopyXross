@@ -1,13 +1,25 @@
-fn main() {
-    #[cfg(target_os = "macos")]
-    {
-        use std::fs;
-        use std::path::Path;
-        use std::process::Command;
+use std::{env, fs, io, path::Path};
 
-        println!("cargo:rustc-link-lib=framework=Foundation");
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
+    fs::create_dir_all(&dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+#[cfg(target_os = "macos")]
+fn link_objc(out_dir: &str) {
+    use std::process::Command;
 
-        let objc_code = r#"
+    println!("cargo:rustc-link-lib=framework=Foundation");
+
+    let objc_code = r#"
         #import <Foundation/Foundation.h>
         typedef struct {
             void *result;
@@ -41,34 +53,43 @@ fn main() {
         }
         "#;
 
-        // Define output directory
-        let out_dir = std::env::var("OUT_DIR").expect("Failed to get OUT_DIR");
-        let objc_file = Path::new(&out_dir).join("objc_exception_wrapper.m");
-        let lib_file = Path::new(&out_dir).join("libobjc_exception_wrapper.dylib");
+    // Define output directory
+    let objc_file = Path::new(&out_dir).join("objc_exception_wrapper.m");
+    let lib_file = Path::new(&out_dir).join("libobjc_exception_wrapper.dylib");
 
-        // Write Objective-C code to file
-        fs::write(&objc_file, objc_code).expect("Failed to write Objective-C file");
+    // Write Objective-C code to file
+    fs::write(&objc_file, objc_code).expect("Failed to write Objective-C file");
 
-        // Compile Objective-C file into a shared library
-        let status = Command::new("clang")
-            .args([
-                "-framework",
-                "Foundation",
-                "-fPIC",
-                "-shared",
-                objc_file.to_str().unwrap(),
-                "-o",
-                lib_file.to_str().unwrap(),
-            ])
-            .status()
-            .expect("Failed to compile Objective-C code");
+    // Compile Objective-C file into a shared library
+    let status = Command::new("clang")
+        .args([
+            "-framework",
+            "Foundation",
+            "-fPIC",
+            "-shared",
+            objc_file.to_str().unwrap(),
+            "-o",
+            lib_file.to_str().unwrap(),
+        ])
+        .status()
+        .expect("Failed to compile Objective-C code");
 
-        if !status.success() {
-            panic!("Objective-C compilation failed");
-        }
+    if !status.success() {
+        panic!("Objective-C compilation failed");
+    }
 
-        // Tell Rust to link the generated library
-        println!("cargo:rustc-link-search=native={}", out_dir);
-        println!("cargo:rustc-link-lib=dylib=objc_exception_wrapper");
+    // Tell Rust to link the generated library
+    println!("cargo:rustc-link-search=native={}", out_dir);
+    println!("cargo:rustc-link-lib=dylib=objc_exception_wrapper");
+}
+
+fn main() {
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let dest_assets = Path::new(&out_dir).join("assets");
+    copy_dir_all("assets", dest_assets).unwrap();
+
+    #[cfg(target_os = "macos")]
+    {
+        link_objc(&out_dir);
     }
 }

@@ -18,12 +18,14 @@ use winapi::um::shellapi::NIF_ICON;
 use winapi::um::shellapi::NIF_MESSAGE;
 use winapi::um::shellapi::NIF_TIP;
 use winapi::um::shellapi::NIM_ADD;
+use winapi::um::shellapi::NIM_DELETE;
 use winapi::um::shellapi::NOTIFYICONDATAW;
 use winapi::um::winuser::AppendMenuW;
 use winapi::um::winuser::CreatePopupMenu;
 use winapi::um::winuser::CreateWindowExW;
 use winapi::um::winuser::DefWindowProcW;
 use winapi::um::winuser::DispatchMessageW;
+use winapi::um::winuser::FindWindowW;
 use winapi::um::winuser::GetCursorPos;
 use winapi::um::winuser::GetMessageW;
 use winapi::um::winuser::LoadImageW;
@@ -38,9 +40,12 @@ use winapi::um::winuser::LR_LOADFROMFILE;
 use winapi::um::winuser::MF_BYCOMMAND;
 use winapi::um::winuser::MF_STRING;
 use winapi::um::winuser::MSG;
+use winapi::um::winuser::TPM_HORNEGANIMATION;
 use winapi::um::winuser::TPM_RETURNCMD;
 use winapi::um::winuser::TPM_RIGHTBUTTON;
+use winapi::um::winuser::WM_CANCELMODE;
 use winapi::um::winuser::WM_COMMAND;
+use winapi::um::winuser::WM_RBUTTONDOWN;
 use winapi::um::winuser::WM_RBUTTONUP;
 use winapi::um::winuser::WNDCLASSW;
 
@@ -71,9 +76,15 @@ impl TaskMenuBar {
         match msg {
             WM_TRAYICON => {
                 let event = lparam as u32; // Extract event type
+                if event != 512 {
+                    println!("Event: {:?}", event);
+                }
                 match event {
                     WM_RBUTTONUP => {
                         PostMessageW(hwnd, WM_TRAYICON, 0, WM_RBUTTONUP as isize);
+                    }
+                    WM_RBUTTONDOWN => {
+                        PostMessageW(hwnd, WM_TRAYICON, 0, WM_RBUTTONDOWN as isize);
                     }
                     _ => {}
                 }
@@ -83,7 +94,21 @@ impl TaskMenuBar {
         0
     }
 
-    fn add_tray_btn(&self) -> Result<(), TaskMenuError> {
+    fn check_single_instance(class_name: *const u16) -> Result<(), TaskMenuError> {
+        unsafe {
+            let res = FindWindowW(class_name, null());
+
+            if !res.is_null() {
+                Err(TaskMenuError::Init(
+                    "App has already been started!".to_string(),
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    fn add_tray_btn(window_ptr: HWND) -> Result<NOTIFYICONDATAW, TaskMenuError> {
         unsafe {
             let icon_path = get_asset_path("tray_16.ico").map_err(|err| {
                 TaskMenuError::Init(format!("Failed to init taskmenu: {:?}", err))
@@ -117,7 +142,7 @@ impl TaskMenuBar {
 
             let mut notify_id = NOTIFYICONDATAW {
                 cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
-                hWnd: self.window_ptr,
+                hWnd: window_ptr,
                 uID: 1,
                 uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
                 szTip: sz_tip,
@@ -126,6 +151,18 @@ impl TaskMenuBar {
                 ..std::mem::zeroed()
             };
             let res = Shell_NotifyIconW(NIM_ADD, &mut notify_id);
+            if res == FALSE.into() {
+                return Err(TaskMenuError::Init(format!(
+                    "Tray icon failed to init: {:?}",
+                    WindowsError::from_last_error()
+                )));
+            }
+            Ok(notify_id)
+        }
+    }
+    fn remove_tray_icon(notify_icon_ptr: *mut NOTIFYICONDATAW) -> Result<(), TaskMenuError> {
+        unsafe {
+            let res = Shell_NotifyIconW(NIM_DELETE, notify_icon_ptr);
             if res == FALSE.into() {
                 return Err(TaskMenuError::Init(format!(
                     "Tray icon failed to init: {:?}",
@@ -168,6 +205,11 @@ impl TaskMenuBar {
             false
         }
     }
+    fn close_tray_menu(&self) {
+        unsafe {
+            PostMessageW(self.window_ptr, WM_CANCELMODE, 0, 0);
+        }
+    }
     fn show_tray_menu(&self) -> Result<(), TaskMenuError> {
         unsafe {
             let hwnd = self.window_ptr;
@@ -182,7 +224,7 @@ impl TaskMenuBar {
 
             let cmd = TrackPopupMenu(
                 self.menu_ptr,
-                TPM_RIGHTBUTTON | TPM_RETURNCMD,
+                TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_HORNEGANIMATION,
                 cursor_pos.x,
                 cursor_pos.y,
                 0,
@@ -192,6 +234,8 @@ impl TaskMenuBar {
 
             if cmd != 0 {
                 PostMessageW(hwnd, WM_COMMAND, cmd as usize, 0);
+            } else {
+                self.close_tray_menu();
             }
             Ok(())
         }
@@ -210,11 +254,15 @@ impl TaskMenuBar {
                 }
                 TranslateMessage(&msg);
                 match msg.message {
-                    WM_TRAYICON => {
-                        if msg.lParam as u32 == WM_RBUTTONUP {
+                    WM_TRAYICON => match msg.lParam as u32 {
+                        // WM_RBUTTONDOWN => {
+                        //     self.close_tray_menu();
+                        // }
+                        WM_RBUTTONUP => {
                             self.show_tray_menu()?;
                         }
-                    }
+                        _ => {}
+                    },
                     WM_COMMAND => match msg.wParam as u32 {
                         ID_MENU_EXIT => {
                             return Ok(());
@@ -245,8 +293,11 @@ impl TaskMenuOperations for TaskMenuBar {
         };
         let item_id_counter = *self.item_id_counter.borrow() + 1;
         self.item_id_counter.replace(item_id_counter);
-        self.register_menu_item(btn_title, item_id_counter as usize)?;
+        self.register_menu_item(btn_title.clone(), item_id_counter as usize)?;
         self.handlers.borrow_mut().insert(item_id_counter, on_click);
+        self.item_id_to_title
+            .borrow_mut()
+            .insert(item_id_counter, btn_title);
 
         Ok(())
     }
@@ -274,12 +325,14 @@ impl TaskMenuOperations for TaskMenuBar {
     }
     fn init() -> Result<Self, TaskMenuError> {
         unsafe {
+            let class_name = "CopyXrossApp\0".encode_utf16().collect::<Vec<u16>>();
+            TaskMenuBar::check_single_instance(class_name.as_ptr())?;
             let h_instance = GetModuleHandleW(null());
             if h_instance.is_null() {
                 let err = WindowsError::from_last_error();
                 return Err(TaskMenuError::Init(format!("{:?}", err)));
             }
-            let class_name = "CopyXrossApp\0".encode_utf16().collect::<Vec<u16>>();
+
             let window_class = WNDCLASSW {
                 style: 0,
                 cbClsExtra: 0,
@@ -333,8 +386,9 @@ impl TaskMenuOperations for TaskMenuBar {
         }
     }
     fn run(&self) -> Result<(), TaskMenuError> {
-        self.add_tray_btn()?;
+        let mut notify_icon_ptr = TaskMenuBar::add_tray_btn(self.window_ptr)?;
         self.event_loop()?;
+        TaskMenuBar::remove_tray_icon(&mut notify_icon_ptr)?;
         Ok(())
     }
     fn set_quit_button(&self) -> Result<(), TaskMenuError> {
