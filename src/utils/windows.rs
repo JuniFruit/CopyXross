@@ -2,6 +2,7 @@ use winapi::shared::winerror::*;
 use winapi::um::errhandlingapi::GetLastError;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum WindowsError {
     FileNotFound,
     PathNotFound,
