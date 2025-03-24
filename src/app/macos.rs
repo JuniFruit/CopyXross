@@ -25,50 +25,6 @@ use super::TaskMenuOperations;
 
 type ObjectId = *mut Object;
 
-#[allow(unexpected_cfgs)]
-extern "C" fn menu_item_clicked(this: &Object, _cmd: Sel, sender: ObjectId) {
-    unsafe {
-        autoreleasepool(|| {
-            let title: ObjectId = msg_send![sender, title];
-            let cstr: *const i8 = msg_send![title, UTF8String];
-
-            if !title.is_null() && !cstr.is_null() {
-                let handlers_ptr = *this.get_ivar::<ObjectId>("handlers_ptr");
-
-                if handlers_ptr.is_null() {
-                    debug_println!("Handlers pointer is null");
-                    return;
-                }
-                let btn_data_map = *this.get_ivar::<ObjectId>("btn_data_map");
-                if btn_data_map.is_null() {
-                    debug_println!("Button data pointer is null");
-                    return;
-                }
-
-                let handlers_ptr: &Mutex<HashMap<String, CallbackFn>> =
-                    &*(handlers_ptr as *mut Mutex<HashMap<String, CallbackFn>>);
-                let btn_data_map: &Mutex<HashMap<String, ButtonData>> =
-                    &*(btn_data_map as *mut Mutex<HashMap<String, ButtonData>>);
-                let key = CStr::from_ptr(cstr).to_string_lossy().to_string();
-                if let Ok(h_map) = attempt_get_lock(handlers_ptr) {
-                    let handler = h_map.get(&key);
-                    if let Ok(h_map_btn) = attempt_get_lock(btn_data_map) {
-                        let btn_data = h_map_btn.get(&key);
-
-                        if let Some(cb) = handler {
-                            if let Some(btn_data) = btn_data {
-                                cb(Some(btn_data));
-                            } else {
-                                cb(None);
-                            }
-                        }
-                    };
-                };
-            }
-        })
-    }
-}
-
 pub struct TaskMenuBar {
     menu_ref: ObjectId,
     app_ref: ObjectId,
@@ -80,6 +36,50 @@ pub struct TaskMenuBar {
 
 #[allow(unexpected_cfgs)]
 impl TaskMenuBar {
+    #[allow(unexpected_cfgs)]
+    extern "C" fn menu_item_clicked(this: &Object, _cmd: Sel, sender: ObjectId) {
+        unsafe {
+            autoreleasepool(|| {
+                let title: ObjectId = msg_send![sender, title];
+                let cstr: *const i8 = msg_send![title, UTF8String];
+
+                if !title.is_null() && !cstr.is_null() {
+                    let handlers_ptr = *this.get_ivar::<ObjectId>("handlers_ptr");
+
+                    if handlers_ptr.is_null() {
+                        debug_println!("Handlers pointer is null");
+                        return;
+                    }
+                    let btn_data_map = *this.get_ivar::<ObjectId>("btn_data_map");
+                    if btn_data_map.is_null() {
+                        debug_println!("Button data pointer is null");
+                        return;
+                    }
+
+                    let handlers_ptr: &Mutex<HashMap<String, CallbackFn>> =
+                        &*(handlers_ptr as *mut Mutex<HashMap<String, CallbackFn>>);
+                    let btn_data_map: &Mutex<HashMap<String, ButtonData>> =
+                        &*(btn_data_map as *mut Mutex<HashMap<String, ButtonData>>);
+                    let key = CStr::from_ptr(cstr).to_string_lossy().to_string();
+                    if let Ok(h_map) = attempt_get_lock(handlers_ptr) {
+                        let handler = h_map.get(&key);
+                        if let Ok(h_map_btn) = attempt_get_lock(btn_data_map) {
+                            let btn_data = h_map_btn.get(&key);
+
+                            if let Some(cb) = handler {
+                                if let Some(btn_data) = btn_data {
+                                    cb(Some(btn_data));
+                                } else {
+                                    cb(None);
+                                }
+                            }
+                        };
+                    };
+                }
+            })
+        }
+    }
+
     fn string_to_nsstring(str: &str) -> Result<ObjectId, TaskMenuError> {
         unsafe {
             let c_str =
@@ -126,7 +126,7 @@ impl TaskMenuBar {
                     // Dynamic handler for menu clicks
                     decl.add_method(
                         sel!(menu_item_clicked:),
-                        menu_item_clicked as extern "C" fn(&Object, Sel, *mut Object),
+                        TaskMenuBar::menu_item_clicked as extern "C" fn(&Object, Sel, *mut Object),
                     );
 
                     let new_class = decl.register();

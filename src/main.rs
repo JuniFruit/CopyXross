@@ -88,7 +88,7 @@ fn core_handle(
         }
         if let Some(ip_str) = &e.unwrap().attrs_str {
             let socket_addr = SocketAddr::new(
-                IpAddr::from_str(&ip_str).unwrap_or(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
+                IpAddr::from_str(ip_str.as_ref()).unwrap_or(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
                 PORT,
             );
             if let Ok(sender) = attempt_get_lock(&c_sender) {
