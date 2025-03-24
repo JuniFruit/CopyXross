@@ -120,34 +120,27 @@ pub fn extract_plain_str_from_html(html: &str) -> String {
     result
 }
 
-pub fn attempt_get_lock<T, F>(p: &Mutex<T>, op: F)
-where
-    F: FnOnce(MutexGuard<T>),
-{
+pub fn attempt_get_lock<T>(p: &Mutex<T>) -> std::result::Result<MutexGuard<T>, ()> {
     let mut attempts = 0;
     let max_attempts = 5;
 
     loop {
-        match p.lock() {
-            Ok(p_l) => {
-                op(p_l);
-
-                break; // Success, exit loop
+        if let Ok(p_l) = p.lock() {
+            return Ok(p_l);
+        } else {
+            attempts += 1;
+            if attempts >= max_attempts {
+                println!(
+                    "Could not acquire lock after {} attempts. Giving up.",
+                    max_attempts
+                );
+                return Err(());
             }
-            Err(_) => {
-                attempts += 1;
-                if attempts >= max_attempts {
-                    debug_println!(
-                        "Could not acquire lock after {} attempts. Giving up.",
-                        max_attempts
-                    );
-                    break;
-                }
 
-                let delay = Duration::from_millis(100 * (2_u64.pow(attempts))); // Exponential backoff
-                debug_println!("Data is locked. Retrying in {:?}...", delay);
-                thread::sleep(delay);
-            }
+            let delay = Duration::from_millis(100 * (2_u64.pow(attempts))); // Exponential backoff
+            debug_println!("Data is locked. Retrying in {:?}...", delay);
+            thread::sleep(delay);
+            continue;
         }
     }
 }

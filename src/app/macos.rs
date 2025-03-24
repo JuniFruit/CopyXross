@@ -50,9 +50,9 @@ extern "C" fn menu_item_clicked(this: &Object, _cmd: Sel, sender: ObjectId) {
                 let btn_data_map: &Mutex<HashMap<String, ButtonData>> =
                     &*(btn_data_map as *mut Mutex<HashMap<String, ButtonData>>);
                 let key = CStr::from_ptr(cstr).to_string_lossy().to_string();
-                attempt_get_lock(handlers_ptr, |h_map| {
+                if let Ok(h_map) = attempt_get_lock(handlers_ptr) {
                     let handler = h_map.get(&key);
-                    attempt_get_lock(btn_data_map, |h_map_btn| {
+                    if let Ok(h_map_btn) = attempt_get_lock(btn_data_map) {
                         let btn_data = h_map_btn.get(&key);
 
                         if let Some(cb) = handler {
@@ -62,8 +62,8 @@ extern "C" fn menu_item_clicked(this: &Object, _cmd: Sel, sender: ObjectId) {
                                 cb(None);
                             }
                         }
-                    });
-                });
+                    };
+                };
             }
         })
     }
@@ -214,12 +214,12 @@ impl TaskMenuOperations for TaskMenuBar {
                 return Err(TaskMenuError::Unexpected(err));
             }
 
-            attempt_get_lock(&self.handlers, |mut h_map| {
+            if let Ok(mut h_map) = attempt_get_lock(&self.handlers) {
                 h_map.insert(btn_title.clone(), on_click);
-            });
-            attempt_get_lock(&self.title_to_btn_data, |mut h_map| {
+            };
+            if let Ok(mut h_map) = attempt_get_lock(&self.title_to_btn_data) {
                 h_map.insert(btn_title.clone(), btn_data);
-            });
+            };
 
             Ok(())
         }
@@ -308,12 +308,12 @@ impl TaskMenuOperations for TaskMenuBar {
                 },
                 Box::into_raw(boxed) as *mut std::ffi::c_void,
             );
-            attempt_get_lock(&self.handlers, |mut h_map| {
+            if let Ok(mut h_map) = attempt_get_lock(&self.handlers) {
                 h_map.remove(&btn_title);
-            });
-            attempt_get_lock(&self.title_to_btn_data, |mut h_map| {
+            };
+            if let Ok(mut h_map) = attempt_get_lock(&self.title_to_btn_data) {
                 h_map.remove(&btn_title);
-            });
+            };
 
             if !res.error.is_null() {
                 let err = get_error(res.error as ObjectId);
