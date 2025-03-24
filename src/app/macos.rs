@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::ptr;
-use std::sync::Arc;
+use std::rc::Rc;
 use std::sync::Mutex;
 
 use objc::class;
@@ -18,6 +18,7 @@ use crate::utils::attempt_get_lock;
 use crate::utils::macos::catch_and_log_exception;
 use crate::utils::macos::get_error;
 
+use super::ButtonData;
 use super::CallbackFn;
 use super::TaskMenuError;
 use super::TaskMenuOperations;
@@ -38,16 +39,30 @@ extern "C" fn menu_item_clicked(this: &Object, _cmd: Sel, sender: ObjectId) {
                     debug_println!("Handlers pointer is null");
                     return;
                 }
+                let btn_data_map = *this.get_ivar::<ObjectId>("btn_data_map");
+                if btn_data_map.is_null() {
+                    debug_println!("Button data pointer is null");
+                    return;
+                }
+
                 let handlers_ptr: &Mutex<HashMap<String, CallbackFn>> =
                     &*(handlers_ptr as *mut Mutex<HashMap<String, CallbackFn>>);
+                let btn_data_map: &Mutex<HashMap<String, ButtonData>> =
+                    &*(btn_data_map as *mut Mutex<HashMap<String, ButtonData>>);
                 let key = CStr::from_ptr(cstr).to_string_lossy().to_string();
+                attempt_get_lock(handlers_ptr, |h_map| {
+                    let handler = h_map.get(&key);
+                    attempt_get_lock(btn_data_map, |h_map_btn| {
+                        let btn_data = h_map_btn.get(&key);
 
-                attempt_get_lock(handlers_ptr, move |m| {
-                    let handler = m.get(&key);
-
-                    if let Some(cb) = handler {
-                        cb(Some(key));
-                    }
+                        if let Some(cb) = handler {
+                            if let Some(btn_data) = btn_data {
+                                cb(Some(btn_data));
+                            } else {
+                                cb(None);
+                            }
+                        }
+                    });
                 });
             }
         })
@@ -59,7 +74,8 @@ pub struct TaskMenuBar {
     app_ref: ObjectId,
     app_delegate: ObjectId,
     // cp_submenu_ref: ObjectId,
-    handlers: Arc<Mutex<HashMap<String, CallbackFn>>>,
+    handlers: Rc<Mutex<HashMap<String, CallbackFn>>>,
+    title_to_btn_data: Rc<Mutex<HashMap<String, ButtonData>>>,
 }
 
 #[allow(unexpected_cfgs)]
@@ -78,11 +94,26 @@ impl TaskMenuBar {
         }
     }
     fn create_app_delegate(
-        handlers: Arc<Mutex<HashMap<String, CallbackFn>>>,
+        handlers: Rc<Mutex<HashMap<String, CallbackFn>>>,
+        title_to_btn_data: Rc<Mutex<HashMap<String, ButtonData>>>,
     ) -> Result<ObjectId, TaskMenuError> {
         unsafe {
+            let raw_handlers = Rc::into_raw(handlers) as *mut _;
+            let raw_title_to_btn_data = Rc::into_raw(title_to_btn_data) as *mut _;
+            #[allow(clippy::type_complexity)]
+            let boxed: Box<(
+                *mut Mutex<HashMap<String, CallbackFn>>,
+                *mut Mutex<HashMap<String, ButtonData>>,
+            )> = Box::new((raw_handlers, raw_title_to_btn_data));
             let result = catch_and_log_exception(
                 |args| {
+                    let converted = Box::from_raw(
+                        args as *mut (
+                            *mut Mutex<HashMap<String, CallbackFn>>,
+                            *mut Mutex<HashMap<String, ButtonData>>,
+                        ),
+                    );
+                    let (handlers_ptr, btn_data_map) = *converted;
                     let superclass = class!(NSObject);
                     let cls_name = "AppDelegate";
                     let decl = objc::declare::ClassDecl::new(cls_name, superclass);
@@ -90,6 +121,7 @@ impl TaskMenuBar {
                     let mut decl = decl.unwrap();
 
                     decl.add_ivar::<ObjectId>("handlers_ptr");
+                    decl.add_ivar::<ObjectId>("btn_data_map");
 
                     // Dynamic handler for menu clicks
                     decl.add_method(
@@ -100,12 +132,11 @@ impl TaskMenuBar {
                     let new_class = decl.register();
                     let delegate_obj: ObjectId = msg_send![new_class, new]; // Create instance of AppDelegate
 
-                    let handlers_ptr: *mut Mutex<HashMap<String, CallbackFn>> = args as *mut _;
-
                     (*delegate_obj).set_ivar("handlers_ptr", handlers_ptr as ObjectId);
+                    (*delegate_obj).set_ivar("btn_data_map", btn_data_map as ObjectId);
                     delegate_obj as *mut std::ffi::c_void
                 },
-                Arc::into_raw(handlers) as *mut _,
+                Box::into_raw(boxed) as *mut std::ffi::c_void,
             );
 
             if result.result.is_null() && !result.error.is_null() {
@@ -145,8 +176,13 @@ impl TaskMenuOperations for TaskMenuBar {
         }
     }
 
-    fn add_menu_item(&self, btn_title: String, on_click: CallbackFn) -> Result<(), TaskMenuError> {
+    fn add_menu_item(
+        &self,
+        btn_data: ButtonData,
+        on_click: CallbackFn,
+    ) -> Result<(), TaskMenuError> {
         unsafe {
+            let btn_title = btn_data.btn_title.clone();
             let boxed: Box<(String, [ObjectId; 2])> =
                 Box::new((btn_title.clone(), [self.menu_ref, self.app_delegate]));
 
@@ -178,8 +214,11 @@ impl TaskMenuOperations for TaskMenuBar {
                 return Err(TaskMenuError::Unexpected(err));
             }
 
-            attempt_get_lock(&self.handlers, |mut h_m| {
-                h_m.insert(btn_title, on_click);
+            attempt_get_lock(&self.handlers, |mut h_map| {
+                h_map.insert(btn_title.clone(), on_click);
+            });
+            attempt_get_lock(&self.title_to_btn_data, |mut h_map| {
+                h_map.insert(btn_title.clone(), btn_data);
             });
 
             Ok(())
@@ -236,8 +275,10 @@ impl TaskMenuOperations for TaskMenuBar {
                 return Err(TaskMenuError::Init("Menu was not instantiated".to_string()));
             }
 
-            let handlers = Arc::new(Mutex::new(HashMap::new()));
-            let app_delegate = TaskMenuBar::create_app_delegate(handlers.clone())?;
+            let handlers = Rc::new(Mutex::new(HashMap::new()));
+            let title_to_btn_data = Rc::new(Mutex::new(HashMap::new()));
+            let app_delegate =
+                TaskMenuBar::create_app_delegate(handlers.clone(), title_to_btn_data.clone())?;
 
             if app_delegate.is_null() {
                 return Err(TaskMenuError::Init(
@@ -250,6 +291,7 @@ impl TaskMenuOperations for TaskMenuBar {
                 app_ref,
                 app_delegate,
                 handlers,
+                title_to_btn_data,
             })
         }
     }
@@ -266,9 +308,13 @@ impl TaskMenuOperations for TaskMenuBar {
                 },
                 Box::into_raw(boxed) as *mut std::ffi::c_void,
             );
-            attempt_get_lock(&self.handlers, |mut m| {
-                m.remove(&btn_title);
+            attempt_get_lock(&self.handlers, |mut h_map| {
+                h_map.remove(&btn_title);
             });
+            attempt_get_lock(&self.title_to_btn_data, |mut h_map| {
+                h_map.remove(&btn_title);
+            });
+
             if !res.error.is_null() {
                 let err = get_error(res.error as ObjectId);
                 Err(TaskMenuError::Init(err))
