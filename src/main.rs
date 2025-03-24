@@ -5,6 +5,7 @@ mod network;
 mod utils;
 
 use app::init_taskmenu;
+use app::ButtonData;
 use app::Event;
 use app::TaskMenuOperations;
 use clipboard::new_clipboard;
@@ -85,14 +86,15 @@ fn core_handle(
         if e.is_none() {
             return;
         }
-        let ip_str = e.unwrap();
-        let socket_addr = SocketAddr::new(
-            IpAddr::from_str(&ip_str).unwrap_or(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
-            PORT,
-        );
-        attempt_get_lock(&c_sender, |sender| {
-            let _ = sender.send(SyncMessage::Cmd((socket_addr, MessageType::Xcpy)));
-        });
+        if let Some(ip_str) = &e.unwrap().attrs_str {
+            let socket_addr = SocketAddr::new(
+                IpAddr::from_str(&ip_str).unwrap_or(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
+                PORT,
+            );
+            attempt_get_lock(&c_sender, |sender| {
+                let _ = sender.send(SyncMessage::Cmd((socket_addr, MessageType::Xcpy)));
+            });
+        }
     });
     let mut connection_map: HashMap<IpAddr, PeerData> = HashMap::new();
     let cp = new_clipboard().unwrap();
@@ -137,10 +139,9 @@ fn core_handle(
                     let p_name = _data.peer_name.clone();
 
                     connection_map.insert(ip_addr.ip(), _data);
-                    let _ = app_menu.add_menu_item(
-                        format_copy_button_title(&p_name, &ip_addr.to_string()),
-                        copy_event_handler.clone(),
-                    );
+                    let mut btn_data = ButtonData::from_str(&p_name);
+                    btn_data.attrs_str = Some(ip_addr.to_string());
+                    let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
                 }
                 encode::MessageType::Xcon(_data) => {
                     if ip_addr.ip() != my_local_ip {
@@ -157,10 +158,9 @@ fn core_handle(
 
                         connection_map.insert(ip_addr.ip(), _data);
 
-                        let _ = app_menu.add_menu_item(
-                            format_copy_button_title(&p_name, &ip_addr.to_string()),
-                            copy_event_handler.clone(),
-                        );
+                        let mut btn_data = ButtonData::from_str(&p_name);
+                        btn_data.attrs_str = Some(ip_addr.to_string());
+                        let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
                     }
                 }
                 encode::MessageType::Xdis => {

@@ -23,18 +23,15 @@ pub trait Transferable: Sized {
 
 impl Transferable for PeerData {
     fn serialize(&self) -> std::result::Result<Vec<u8>, EncodeError> {
-        // -24 for String struct, +8 for u64 string len
+        // -24 for String struct, +1 for u8 string len
         let str_len = self.peer_name.len();
-        let mut encoded: Vec<u8> = Vec::with_capacity((size_of::<Self>() - 24) + str_len + 8);
+        let mut encoded: Vec<u8> = Vec::with_capacity((size_of::<Self>() - 24) + str_len + 1);
 
-        let str_len_u64: u64 = str_len
-            .try_into()
-            .map_err(|err| {
-                println!("Failed to serialize PeerData: {:?}", err);
-                EncodeError::Overflow
-            })
-            .unwrap();
-        encoded.extend(str_len_u64.to_be_bytes());
+        let str_len: u8 = str_len.try_into().map_err(|err| {
+            println!("Failed to serialize PeerData: {:?}", err);
+            EncodeError::Overflow
+        })?;
+        encoded.extend(str_len.to_be_bytes());
         encoded.extend(self.peer_name.as_bytes());
         Ok(encoded)
     }
@@ -45,21 +42,18 @@ impl Transferable for PeerData {
             peer_name: String::new(),
         };
 
-        let slice: [u8; 8] = data[0..8].try_into().map_err(|err| {
+        let slice: [u8; 1] = data[0..1].try_into().map_err(|err| {
             println!("Error occurred while deserializing PeerData: {:?}", err);
             ParseErrors::InvalidStructure
         })?;
-        let str_len = u64::from_be_bytes(slice);
-        let str_len: usize = str_len
-            .try_into()
-            .map_err(|err| {
-                println!("Error occurred while deserializing PeerData: {:?}", err);
-                ParseErrors::InvalidStructure
-            })
-            .unwrap();
-        check_offset_bounds(data, 8, str_len)?;
+        let str_len = u8::from_be_bytes(slice);
+        let str_len: usize = str_len.try_into().map_err(|err| {
+            println!("Error occurred while deserializing PeerData: {:?}", err);
+            ParseErrors::InvalidStructure
+        })?;
+        check_offset_bounds(data, 1, str_len)?;
 
-        let peer_name = String::from_utf8(data[8..str_len].to_vec()).map_err(|err| {
+        let peer_name = String::from_utf8(data[1..=str_len].to_vec()).map_err(|err| {
             println!("Error occurred while deserializing PeerData: {:?}", err);
             ParseErrors::InvalidStructure
         })?;

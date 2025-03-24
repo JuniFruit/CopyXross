@@ -32,6 +32,7 @@ use winapi::um::winuser::LoadImageW;
 use winapi::um::winuser::PostMessageW;
 use winapi::um::winuser::RegisterClassW;
 use winapi::um::winuser::RemoveMenu;
+use winapi::um::winuser::SetForegroundWindow;
 use winapi::um::winuser::TrackPopupMenu;
 use winapi::um::winuser::TranslateMessage;
 use winapi::um::winuser::IMAGE_ICON;
@@ -53,6 +54,7 @@ use crate::debug_println;
 use crate::utils::get_asset_path;
 use crate::utils::windows::WindowsError;
 
+use super::ButtonData;
 use super::CallbackFn;
 use super::TaskMenuError;
 use super::TaskMenuOperations;
@@ -61,7 +63,7 @@ pub struct TaskMenuBar {
     window_ptr: HWND,
     menu_ptr: HMENU,
     handlers: RefCell<HashMap<u32, CallbackFn>>,
-    item_id_to_title: RefCell<HashMap<u32, String>>,
+    item_id_to_btn_data: RefCell<HashMap<u32, ButtonData>>,
     item_id_counter: RefCell<u32>,
 }
 const WM_TRAYICON: u32 = 2;
@@ -191,15 +193,16 @@ impl TaskMenuBar {
     }
     fn handle_click(&self, msg_id: u32) -> bool {
         let handler = self.handlers.borrow();
-        let mut handler: Option<&Box<dyn Fn(Option<String>)>> = handler.get(&msg_id);
-        if let Some(cb) = handler.take() {
-            let item_id_to_title = self.item_id_to_title.borrow();
-            let btn_title = item_id_to_title.get(&msg_id);
-            if btn_title.is_some() {
-                cb(Some(btn_title.unwrap().to_owned()));
+        let handler = handler.get(&msg_id);
+        if let Some(cb) = handler {
+            let item_id_to_btn_data = self.item_id_to_btn_data.borrow();
+            let btn_data = item_id_to_btn_data.get(&msg_id);
+            if let Some(btn_data) = btn_data {
+                cb(Some(btn_data));
             } else {
-                cb(None);
+                cb(None)
             }
+
             true
         } else {
             false
@@ -221,7 +224,12 @@ impl TaskMenuBar {
                     WindowsError::from_last_error()
                 )));
             }
-
+            let res = SetForegroundWindow(hwnd);
+            if res == 0 {
+                return Err(TaskMenuError::Unexpected(
+                    "Failed to show popup menu: Foreground window failed to set".to_string(),
+                ));
+            }
             let cmd = TrackPopupMenu(
                 self.menu_ptr,
                 TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_HORNEGANIMATION,
@@ -259,7 +267,9 @@ impl TaskMenuBar {
                         //     self.close_tray_menu();
                         // }
                         WM_RBUTTONUP => {
-                            self.show_tray_menu()?;
+                            if let Err(err) = self.show_tray_menu() {
+                                println!("{:?}", err);
+                            }
                         }
                         _ => {}
                     },
@@ -285,28 +295,33 @@ impl TaskMenuBar {
 }
 
 impl TaskMenuOperations for TaskMenuBar {
-    fn add_menu_item(&self, btn_title: String, on_click: CallbackFn) -> Result<(), TaskMenuError> {
+    fn add_menu_item(
+        &self,
+        btn_data: ButtonData,
+        on_click: CallbackFn,
+    ) -> Result<(), TaskMenuError> {
         if self.menu_ptr.is_null() {
             return Err(TaskMenuError::Unexpected(
                 "Menu pointer is null".to_string(),
             ));
         };
+        let btn_title = btn_data.btn_title.clone();
         let item_id_counter = *self.item_id_counter.borrow() + 1;
         self.item_id_counter.replace(item_id_counter);
-        self.register_menu_item(btn_title.clone(), item_id_counter as usize)?;
+        self.register_menu_item(btn_title, item_id_counter as usize)?;
         self.handlers.borrow_mut().insert(item_id_counter, on_click);
-        self.item_id_to_title
+        self.item_id_to_btn_data
             .borrow_mut()
-            .insert(item_id_counter, btn_title);
+            .insert(item_id_counter, btn_data);
 
         Ok(())
     }
     fn remove_menu_item(&self, btn_title: String) -> Result<(), TaskMenuError> {
         unsafe {
-            let mut item_id_to_title = self.item_id_to_title.borrow_mut();
+            let mut item_id_to_btn_data = self.item_id_to_btn_data.borrow_mut();
             let mut handlers = self.handlers.borrow_mut();
-            let mut iter = item_id_to_title.iter();
-            let item_entry = iter.find(|item| item.1 == &btn_title);
+            let mut iter = item_id_to_btn_data.iter();
+            let item_entry = iter.find(|item| item.1.btn_title == btn_title);
             let mut item_id: u32 = 0;
             if item_entry.is_some() {
                 item_id = item_entry.unwrap().0.to_owned();
@@ -318,7 +333,7 @@ impl TaskMenuOperations for TaskMenuBar {
                     )));
                 }
             }
-            item_id_to_title.remove(&item_id);
+            item_id_to_btn_data.remove(&item_id);
             handlers.remove(&item_id);
         }
         Ok(())
@@ -380,7 +395,7 @@ impl TaskMenuOperations for TaskMenuBar {
                 window_ptr: window,
                 menu_ptr,
                 handlers: RefCell::new(HashMap::new()),
-                item_id_to_title: RefCell::new(HashMap::new()),
+                item_id_to_btn_data: RefCell::new(HashMap::new()),
                 item_id_counter: RefCell::new(5),
             })
         }
