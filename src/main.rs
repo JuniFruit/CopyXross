@@ -37,6 +37,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use utils::attempt_get_lock;
+use utils::get_pc_name;
 
 #[derive(PartialEq, Debug)]
 #[allow(dead_code)]
@@ -112,7 +113,8 @@ fn core_handle(
     let cp = new_clipboard().unwrap();
 
     // getting my peer name
-    let my_peer_name = format!("PC_num-{}", 42);
+    let my_peer_name = get_pc_name();
+    debug_println!("Name: {:?}", my_peer_name);
     let my_peer_data = encode::PeerData {
         peer_name: my_peer_name,
     };

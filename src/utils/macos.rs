@@ -1,5 +1,7 @@
 use std::ffi::CStr;
+use std::ptr;
 
+use objc::class;
 use objc::msg_send;
 use objc::runtime::Object;
 use objc::sel;
@@ -15,6 +17,32 @@ pub fn get_error(exception: *mut Object) -> String {
         let reason = msg_send![reason, UTF8String];
         let reason = CStr::from_ptr(reason).to_string_lossy();
         format!("ObjC err: {}. Reason: {}", err, reason)
+    }
+}
+
+#[allow(unexpected_cfgs)]
+pub fn get_host_name() -> String {
+    unsafe {
+        let res = catch_and_log_exception(
+            |_| {
+                let host: *mut Object = msg_send![class!(NSHost), currentHost];
+                let host_name: *mut Object = msg_send![host, localizedName];
+                let name: *const i8 = msg_send![host_name, UTF8String];
+                name as *mut _
+            },
+            ptr::null_mut() as *mut _,
+        );
+
+        if !res.error.is_null() {
+            println!("{:?}", get_error(res.error as *mut Object));
+        }
+        if !res.result.is_null() {
+            std::ffi::CStr::from_ptr(res.result as *const i8)
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            String::from("Unknown MACOS Machine")
+        }
     }
 }
 

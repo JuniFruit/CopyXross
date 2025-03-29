@@ -1,7 +1,11 @@
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(target_os = "macos")]
+pub use macos::get_host_name as get_pc_name;
 #[cfg(target_os = "windows")]
 pub mod windows;
+#[cfg(target_os = "windows")]
+use windows::get_host_name as get_pc_name;
 
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
