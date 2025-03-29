@@ -24,7 +24,7 @@ pub trait Transferable: Sized {
 impl Transferable for PeerData {
     fn serialize(&self) -> std::result::Result<Vec<u8>, EncodeError> {
         // -24 for String struct, +1 for u8 string len
-        let str_len = self.peer_name.len();
+        let str_len = self.peer_name.capacity();
         let mut encoded: Vec<u8> = Vec::with_capacity((size_of::<Self>() - 24) + str_len + 1);
 
         let str_len: u8 = str_len.try_into().map_err(|err| {
@@ -36,7 +36,7 @@ impl Transferable for PeerData {
         Ok(encoded)
     }
     fn deserialize(data: &[u8]) -> std::result::Result<Self, ParseErrors> {
-        check_offset_bounds(data, 0, 8)?;
+        // check_offset_bounds(data, 0, 8)?;
 
         let mut peer_data = PeerData {
             peer_name: String::new(),

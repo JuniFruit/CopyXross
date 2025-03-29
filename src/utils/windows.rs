@@ -1,5 +1,9 @@
+use std::ffi::OsString;
+use std::os::windows::ffi::OsStringExt;
+
 use winapi::shared::winerror::*;
 use winapi::um::errhandlingapi::GetLastError;
+use winapi::um::winbase::GetComputerNameW;
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -73,5 +77,23 @@ impl From<u32> for WindowsError {
             ERROR_SERVICE_DISABLED => WindowsError::ServiceDisabled,
             _ => WindowsError::Unknown(error),
         }
+    }
+}
+
+pub fn get_host_name() -> String {
+    unsafe {
+        let mut buff: [u16; 33] = [0; 33];
+        let mut size = (buff.len() * 2) as u32;
+        let res = GetComputerNameW(buff.as_mut_ptr(), &mut size);
+        if res == 0 {
+            println!(
+                "Could not get PC name: {:?}",
+                WindowsError::from_last_error()
+            );
+            return "Unknown WIN Machine".to_string();
+        }
+        let str = OsString::from_wide(&buff).to_string_lossy().into_owned();
+        let str = str.trim_end_matches("\0");
+        str.to_string()
     }
 }

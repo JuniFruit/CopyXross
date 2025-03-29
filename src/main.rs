@@ -127,6 +127,9 @@ fn core_handle(
             compose_message(&MessageType::Xcon(my_peer_data.clone()), PROTOCOL_VER)
                 .expect("Failed to compose greeting msg");
         send_message_to_socket(&socket, BROADCAST_ADDR, &greeting_message);
+
+        let msg = parse_message(&greeting_message).unwrap();
+        println!("{:?}", msg);
     }
 
     let mut tcp_buff: Vec<u8> = Vec::with_capacity(5024);
