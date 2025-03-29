@@ -36,7 +36,6 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
 use utils::attempt_get_lock;
 
 #[derive(PartialEq, Debug)]
@@ -130,17 +129,11 @@ fn core_handle(
 
     let mut tcp_buff: Vec<u8> = Vec::with_capacity(5024);
     // main listener loop
-    let mut i = 0;
     loop {
         if !tcp_buff.is_empty() {
             tcp_buff.clear();
         }
-        thread::sleep(Duration::new(5, 0));
-        let _ = app_menu.add_menu_item(
-            ButtonData::from_str_dyn(&format!("Test: {}", i)),
-            copy_event_handler.clone(),
-        );
-        i += 1;
+
         let client_res = c_receiver.try_recv();
         let res = listen_to_socket(&socket);
         let tcp_res = listen_to_tcp(&tcp_listener, &mut tcp_buff);

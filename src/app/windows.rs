@@ -4,6 +4,8 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::ptr::null;
 use std::ptr::null_mut;
+use std::rc::Rc;
+use std::sync::Mutex;
 
 use winapi::shared::minwindef::LPARAM;
 use winapi::shared::minwindef::LRESULT;
@@ -28,6 +30,7 @@ use winapi::um::winuser::DispatchMessageW;
 use winapi::um::winuser::FindWindowW;
 use winapi::um::winuser::GetCursorPos;
 use winapi::um::winuser::GetMessageW;
+use winapi::um::winuser::InsertMenuItemW;
 use winapi::um::winuser::LoadImageW;
 use winapi::um::winuser::PostMessageW;
 use winapi::um::winuser::RegisterClassW;
@@ -38,8 +41,10 @@ use winapi::um::winuser::TranslateMessage;
 use winapi::um::winuser::IMAGE_ICON;
 use winapi::um::winuser::LR_DEFAULTSIZE;
 use winapi::um::winuser::LR_LOADFROMFILE;
+use winapi::um::winuser::MENUITEMINFOW;
 use winapi::um::winuser::MF_BYCOMMAND;
 use winapi::um::winuser::MF_STRING;
+use winapi::um::winuser::MIIM_STRING;
 use winapi::um::winuser::MSG;
 use winapi::um::winuser::TPM_HORNEGANIMATION;
 use winapi::um::winuser::TPM_RETURNCMD;
@@ -51,10 +56,12 @@ use winapi::um::winuser::WM_RBUTTONUP;
 use winapi::um::winuser::WNDCLASSW;
 
 use crate::debug_println;
+use crate::utils::attempt_get_lock;
 use crate::utils::get_asset_path;
 use crate::utils::windows::WindowsError;
 
 use super::ButtonData;
+use super::ButtonFullData;
 use super::CallbackFn;
 use super::TaskMenuError;
 use super::TaskMenuOperations;
@@ -62,8 +69,7 @@ use super::TaskMenuOperations;
 pub struct TaskMenuBar {
     window_ptr: HWND,
     menu_ptr: HMENU,
-    handlers: RefCell<HashMap<u32, CallbackFn>>,
-    item_id_to_btn_data: RefCell<HashMap<u32, ButtonData>>,
+    handlers: Rc<Mutex<HashMap<u32, ButtonFullData>>>,
     item_id_counter: RefCell<u32>,
 }
 const WM_TRAYICON: u32 = 2;
@@ -78,9 +84,7 @@ impl TaskMenuBar {
         match msg {
             WM_TRAYICON => {
                 let event = lparam as u32; // Extract event type
-                if event != 512 {
-                    println!("Event: {:?}", event);
-                }
+
                 match event {
                     WM_RBUTTONUP => {
                         PostMessageW(hwnd, WM_TRAYICON, 0, WM_RBUTTONUP as isize);
@@ -174,36 +178,56 @@ impl TaskMenuBar {
             Ok(())
         }
     }
-    fn register_menu_item(&self, btn_title: String, item_id: usize) -> Result<(), TaskMenuError> {
+    fn register_menu_item(
+        &self,
+        btn_title: String,
+        item_id: usize,
+        is_static: bool,
+    ) -> Result<(), TaskMenuError> {
         unsafe {
-            let menu_title = btn_title
+            let mut menu_title = btn_title
                 .encode_utf16()
                 .chain(std::iter::once(0))
                 .collect::<Vec<u16>>();
-            let res = AppendMenuW(self.menu_ptr, MF_STRING, item_id, menu_title.as_ptr());
-            if res == 0 {
-                let err = WindowsError::from_last_error();
-                return Err(TaskMenuError::Init(format!(
-                    "Failed to add button: {:?}",
-                    err
-                )));
+            if is_static {
+                let res = AppendMenuW(self.menu_ptr, MF_STRING, item_id, menu_title.as_ptr());
+                if res == 0 {
+                    let err = WindowsError::from_last_error();
+                    return Err(TaskMenuError::Init(format!(
+                        "Failed to add button: {:?}",
+                        err
+                    )));
+                }
+            } else {
+                let mut menu_item = MENUITEMINFOW {
+                    cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
+                    fMask: MIIM_STRING,
+                    wID: item_id as u32,                 // Command ID
+                    dwTypeData: menu_title.as_mut_ptr(), // Pointer to the title
+                    ..std::mem::zeroed()
+                };
+                let res = InsertMenuItemW(self.menu_ptr, 0, 1, &mut menu_item);
+                if res == 0 {
+                    let err = WindowsError::from_last_error();
+                    return Err(TaskMenuError::Init(format!(
+                        "Failed to add button: {:?}",
+                        err
+                    )));
+                }
             }
         }
         Ok(())
     }
     fn handle_click(&self, msg_id: u32) -> bool {
-        let handler = self.handlers.borrow();
-        let handler = handler.get(&msg_id);
-        if let Some(cb) = handler {
-            let item_id_to_btn_data = self.item_id_to_btn_data.borrow();
-            let btn_data = item_id_to_btn_data.get(&msg_id);
-            if let Some(btn_data) = btn_data {
-                cb(Some(btn_data));
+        if let Ok(handler) = attempt_get_lock(&self.handlers) {
+            let data = handler.get(&msg_id);
+            if let Some(data) = data {
+                let cb = &data.handler;
+                cb(Some(&data.btn_data));
+                true
             } else {
-                cb(None)
+                false
             }
-
-            true
         } else {
             false
         }
@@ -292,6 +316,47 @@ impl TaskMenuBar {
             Ok(())
         }
     }
+    fn find_btn_id_to_remove(&self, btn_data: ButtonData) -> Result<Option<u32>, TaskMenuError> {
+        let h_map = attempt_get_lock(&self.handlers)
+            .map_err(|err| TaskMenuError::Unexpected(format!("{:?}", err)))?;
+        let mut id: Option<u32> = None;
+        let target_attrs = &btn_data.attrs_str;
+        let keys = h_map.keys();
+        for item_key in keys {
+            let item = h_map.get(item_key).unwrap();
+            let is_title_eq = btn_data.btn_title == item.btn_data.btn_title;
+            let mut is_attrs_eq = btn_data.attrs_str.is_none() && item.btn_data.attrs_str.is_none();
+            if target_attrs.is_some() && item.btn_data.attrs_str.is_some() {
+                is_attrs_eq =
+                    target_attrs.as_ref().unwrap() == item.btn_data.attrs_str.as_ref().unwrap();
+            }
+            if is_title_eq && is_attrs_eq {
+                id = Some(*item_key);
+                break;
+            }
+        }
+        Ok(id)
+    }
+
+    fn increment_btn_id(&self) -> Result<u32, TaskMenuError> {
+        let new_id_counter = *self.item_id_counter.try_borrow().map_err(|err| {
+            TaskMenuError::Unexpected(format!("Cant increment btn_id: {:?}", err))
+        })? + 1;
+        self.item_id_counter.replace(new_id_counter);
+        Ok(new_id_counter)
+    }
+    fn remove_menu_item(&self, id: u32) -> Result<(), TaskMenuError> {
+        unsafe {
+            let res = RemoveMenu(self.menu_ptr, id, MF_BYCOMMAND);
+            if res == 0 {
+                return Err(TaskMenuError::Unexpected(format!(
+                    "{:?}",
+                    WindowsError::from_last_error()
+                )));
+            };
+            Ok(())
+        }
+    }
 }
 
 impl TaskMenuOperations for TaskMenuBar {
@@ -306,37 +371,56 @@ impl TaskMenuOperations for TaskMenuBar {
             ));
         };
         let btn_title = btn_data.btn_title.clone();
-        let item_id_counter = *self.item_id_counter.borrow() + 1;
-        self.item_id_counter.replace(item_id_counter);
-        self.register_menu_item(btn_title, item_id_counter as usize)?;
-        self.handlers.borrow_mut().insert(item_id_counter, on_click);
-        self.item_id_to_btn_data
-            .borrow_mut()
-            .insert(item_id_counter, btn_data);
+        let item_id = self.increment_btn_id()?;
+        self.register_menu_item(btn_title, item_id as usize, btn_data.is_static)?;
+        let mut h_map = attempt_get_lock(&self.handlers)
+            .map_err(|err| TaskMenuError::Unexpected(format!("{:?}", err)))?;
+
+        h_map.insert(
+            item_id,
+            ButtonFullData {
+                handler: on_click,
+                btn_data,
+            },
+        );
 
         Ok(())
     }
-    fn remove_menu_item(&self, btn_title: String) -> Result<(), TaskMenuError> {
-        unsafe {
-            let mut item_id_to_btn_data = self.item_id_to_btn_data.borrow_mut();
-            let mut handlers = self.handlers.borrow_mut();
-            let mut iter = item_id_to_btn_data.iter();
-            let item_entry = iter.find(|item| item.1.btn_title == btn_title);
-            let mut item_id: u32 = 0;
-            if item_entry.is_some() {
-                item_id = item_entry.unwrap().0.to_owned();
-                let res = RemoveMenu(self.menu_ptr, item_id, MF_BYCOMMAND);
-                if res == 0 {
-                    return Err(TaskMenuError::Unexpected(format!(
-                        "{:?}",
-                        WindowsError::from_last_error()
-                    )));
+    fn remove_all_dyn(&self) -> Result<(), TaskMenuError> {
+        {
+            let h_map = attempt_get_lock(&self.handlers)
+                .map_err(|err| TaskMenuError::Unexpected(format!("{:?}", err)))?;
+
+            for key in h_map.keys() {
+                if !h_map.get(key).unwrap().btn_data.is_static {
+                    self.remove_menu_item(*key)?;
                 }
             }
-            item_id_to_btn_data.remove(&item_id);
-            handlers.remove(&item_id);
         }
+        {
+            let mut h_map = attempt_get_lock(&self.handlers)
+                .map_err(|err| TaskMenuError::Unexpected(format!("{:?}", err)))?;
+
+            h_map.retain(|_, v| v.btn_data.is_static);
+        }
+
         Ok(())
+    }
+    fn remove_menu_item(&self, btn_data: ButtonData) -> Result<(), TaskMenuError> {
+        let id = self.find_btn_id_to_remove(btn_data)?;
+        let mut h_map = attempt_get_lock(&self.handlers)
+            .map_err(|err| TaskMenuError::Unexpected(format!("{:?}", err)))?;
+
+        if let Some(id) = id {
+            self.remove_menu_item(id)?;
+            h_map.remove(&id);
+
+            Ok(())
+        } else {
+            Err(TaskMenuError::Unexpected(
+                "Could not find button to delete!".to_string(),
+            ))
+        }
     }
     fn init() -> Result<Self, TaskMenuError> {
         unsafe {
@@ -394,8 +478,7 @@ impl TaskMenuOperations for TaskMenuBar {
             Ok(TaskMenuBar {
                 window_ptr: window,
                 menu_ptr,
-                handlers: RefCell::new(HashMap::new()),
-                item_id_to_btn_data: RefCell::new(HashMap::new()),
+                handlers: Rc::new(Mutex::new(HashMap::new())),
                 item_id_counter: RefCell::new(5),
             })
         }
@@ -407,7 +490,7 @@ impl TaskMenuOperations for TaskMenuBar {
         Ok(())
     }
     fn set_quit_button(&self) -> Result<(), TaskMenuError> {
-        self.register_menu_item("Quit".to_string(), ID_MENU_EXIT as usize)?;
+        self.register_menu_item("Quit".to_string(), ID_MENU_EXIT as usize, true)?;
         Ok(())
     }
 }
