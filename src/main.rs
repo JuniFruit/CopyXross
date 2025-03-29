@@ -90,7 +90,7 @@ fn core_handle(
             return;
         }
         if let Some(ip_str) = &e.unwrap().attrs_str {
-            let socket_addr = SocketAddr::from_str(&ip_str)
+            let socket_addr = SocketAddr::from_str(ip_str)
                 .unwrap_or(SocketAddr::new(IpAddr::from_str("0.0.0.0").unwrap(), PORT));
             if let Ok(sender) = attempt_get_lock(&c_sender) {
                 let _ = sender.send(SyncMessage::Cmd((socket_addr, MessageType::Xcpy)));
