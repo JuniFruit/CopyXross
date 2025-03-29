@@ -9,16 +9,31 @@ pub enum TaskMenuError {
     Init(String),
     Unexpected(String),
 }
+
+struct ButtonFullData {
+    handler: CallbackFn,
+    btn_data: ButtonData,
+}
+
 #[derive(Debug, Clone)]
 pub struct ButtonData {
     pub btn_title: String,
     pub attrs_str: Option<String>,
+    pub is_static: bool,
 }
 impl ButtonData {
-    pub fn from_str(input: &str) -> Self {
+    pub fn from_str_static(input: &str) -> Self {
         ButtonData {
             btn_title: input.to_string(),
             attrs_str: None,
+            is_static: true,
+        }
+    }
+    pub fn from_str_dyn(input: &str) -> Self {
+        ButtonData {
+            btn_title: input.to_string(),
+            attrs_str: None,
+            is_static: false,
         }
     }
 }
@@ -33,7 +48,8 @@ pub trait TaskMenuOperations: Sized + Sync + Send {
         on_click: CallbackFn,
     ) -> Result<(), TaskMenuError>;
     fn set_quit_button(&self) -> Result<(), TaskMenuError>;
-    fn remove_menu_item(&self, btn_title: String) -> Result<(), TaskMenuError>;
+    fn remove_menu_item(&self, btn_data: ButtonData) -> Result<(), TaskMenuError>;
+    fn remove_all_dyn(&self) -> Result<(), TaskMenuError>;
     fn run(&self) -> Result<(), TaskMenuError>;
 }
 
@@ -44,10 +60,6 @@ use windows::TaskMenuBar as PlatformTaskBar;
 
 pub fn init_taskmenu() -> Result<impl TaskMenuOperations, TaskMenuError> {
     let bar = PlatformTaskBar::init()?;
-    bar.add_menu_item(
-        ButtonData::from_str("About"),
-        Box::new(move |e| println!("Clicked on {:?}", e)),
-    )?;
     bar.set_quit_button()?;
     Ok(bar)
 }

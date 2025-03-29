@@ -36,13 +36,14 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
+use std::time::Duration;
 use utils::attempt_get_lock;
-use utils::format_copy_button_title;
 
 #[derive(PartialEq, Debug)]
 #[allow(dead_code)]
 enum SyncMessage {
     Stop,
+    Discover,
     Cmd((SocketAddr, MessageType)),
 }
 
@@ -82,6 +83,8 @@ fn core_handle(
     c_sender: Arc<Mutex<Sender<SyncMessage>>>,
     c_receiver: Receiver<SyncMessage>,
 ) {
+    let c_sender_clone = c_sender.clone();
+
     let copy_event_handler = Box::new(move |e: Event| {
         if e.is_none() {
             return;
@@ -96,6 +99,16 @@ fn core_handle(
             };
         }
     });
+    app_menu
+        .add_menu_item(
+            ButtonData::from_str_static("Discover"),
+            Box::new(move |_| {
+                if let Ok(sender) = attempt_get_lock(&c_sender_clone) {
+                    let _ = sender.send(SyncMessage::Discover);
+                };
+            }),
+        )
+        .unwrap();
     let mut connection_map: HashMap<IpAddr, PeerData> = HashMap::new();
     let cp = new_clipboard().unwrap();
 
@@ -117,10 +130,17 @@ fn core_handle(
 
     let mut tcp_buff: Vec<u8> = Vec::with_capacity(5024);
     // main listener loop
+    let mut i = 0;
     loop {
         if !tcp_buff.is_empty() {
             tcp_buff.clear();
         }
+        thread::sleep(Duration::new(5, 0));
+        let _ = app_menu.add_menu_item(
+            ButtonData::from_str_dyn(&format!("Test: {}", i)),
+            copy_event_handler.clone(),
+        );
+        i += 1;
         let client_res = c_receiver.try_recv();
         let res = listen_to_socket(&socket);
         let tcp_res = listen_to_tcp(&tcp_listener, &mut tcp_buff);
@@ -139,7 +159,7 @@ fn core_handle(
                     let p_name = _data.peer_name.clone();
 
                     connection_map.insert(ip_addr.ip(), _data);
-                    let mut btn_data = ButtonData::from_str(&p_name);
+                    let mut btn_data = ButtonData::from_str_dyn(&p_name);
                     btn_data.attrs_str = Some(ip_addr.to_string());
                     let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
                 }
@@ -158,17 +178,17 @@ fn core_handle(
 
                         connection_map.insert(ip_addr.ip(), _data);
 
-                        let mut btn_data = ButtonData::from_str(&p_name);
+                        let mut btn_data = ButtonData::from_str_dyn(&p_name);
                         btn_data.attrs_str = Some(ip_addr.to_string());
                         let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
                     }
                 }
                 encode::MessageType::Xdis => {
                     if let Some(data) = connection_map.remove(&ip_addr.ip()) {
-                        let _ = app_menu.remove_menu_item(format_copy_button_title(
-                            &data.peer_name,
-                            &ip_addr.to_string(),
-                        ));
+                        let p_name = data.peer_name;
+                        let mut btn_data = ButtonData::from_str_dyn(&p_name);
+                        btn_data.attrs_str = Some(ip_addr.to_string());
+                        let _ = app_menu.remove_menu_item(btn_data);
                     }
                 }
                 encode::MessageType::Xcpy => {
@@ -229,6 +249,14 @@ fn core_handle(
                 }
                 SyncMessage::Stop => {
                     break;
+                }
+                SyncMessage::Discover => {
+                    let _ = app_menu.remove_all_dyn();
+                    connection_map.clear();
+                    let greeting_message =
+                        compose_message(&MessageType::Xcon(my_peer_data.clone()), PROTOCOL_VER)
+                            .expect("Failed to compose greeting msg");
+                    send_message_to_socket(&socket, BROADCAST_ADDR, &greeting_message);
                 }
             };
         }

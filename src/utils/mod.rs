@@ -145,10 +145,6 @@ pub fn attempt_get_lock<T>(p: &Mutex<T>) -> std::result::Result<MutexGuard<T>, (
     }
 }
 
-pub fn format_copy_button_title(peer_name: &str, ip_addr: &str) -> String {
-    format!("cp {} {}", peer_name, ip_addr)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
