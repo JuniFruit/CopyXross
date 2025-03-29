@@ -5,6 +5,8 @@ use winapi::shared::winerror::*;
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::winbase::GetComputerNameW;
 
+use crate::debug_println;
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum WindowsError {
@@ -41,7 +43,9 @@ pub enum WindowsError {
 impl WindowsError {
     pub fn from_last_error() -> Self {
         let error_code = unsafe { GetLastError() };
-        WindowsError::from(error_code)
+        let err = WindowsError::from(error_code);
+        debug_println!("WinErr: {:?}", err);
+        err
     }
 }
 

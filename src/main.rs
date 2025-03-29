@@ -28,7 +28,7 @@ use network::PROTOCOL_VER;
 use std::collections::HashMap;
 use std::net::TcpListener;
 use std::net::UdpSocket;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Receiver;
@@ -90,15 +90,14 @@ fn core_handle(
             return;
         }
         if let Some(ip_str) = &e.unwrap().attrs_str {
-            let socket_addr = SocketAddr::new(
-                IpAddr::from_str(ip_str.as_ref()).unwrap_or(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
-                PORT,
-            );
+            let socket_addr = SocketAddr::from_str(&ip_str)
+                .unwrap_or(SocketAddr::new(IpAddr::from_str("0.0.0.0").unwrap(), PORT));
             if let Ok(sender) = attempt_get_lock(&c_sender) {
                 let _ = sender.send(SyncMessage::Cmd((socket_addr, MessageType::Xcpy)));
             };
         }
     });
+
     app_menu
         .add_menu_item(
             ButtonData::from_str_static("Discover"),
@@ -109,6 +108,7 @@ fn core_handle(
             }),
         )
         .unwrap();
+
     let mut connection_map: HashMap<IpAddr, PeerData> = HashMap::new();
     let cp = new_clipboard().unwrap();
 

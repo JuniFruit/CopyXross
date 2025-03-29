@@ -20,6 +20,7 @@ pub struct ButtonData {
     pub btn_title: String,
     pub attrs_str: Option<String>,
     pub is_static: bool,
+    pub index: Option<usize>,
 }
 impl ButtonData {
     pub fn from_str_static(input: &str) -> Self {
@@ -27,6 +28,7 @@ impl ButtonData {
             btn_title: input.to_string(),
             attrs_str: None,
             is_static: true,
+            index: Some(0),
         }
     }
     pub fn from_str_dyn(input: &str) -> Self {
@@ -34,6 +36,7 @@ impl ButtonData {
             btn_title: input.to_string(),
             attrs_str: None,
             is_static: false,
+            index: Some(0),
         }
     }
 }

@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use winapi::shared::minwindef::LPARAM;
 use winapi::shared::minwindef::LRESULT;
 use winapi::shared::minwindef::WPARAM;
-use winapi::shared::ntdef::FALSE;
+use winapi::shared::ntdef::{FALSE, TRUE};
 use winapi::shared::windef::HMENU;
 use winapi::shared::windef::HWND;
 use winapi::shared::windef::POINT;
@@ -44,6 +44,7 @@ use winapi::um::winuser::LR_LOADFROMFILE;
 use winapi::um::winuser::MENUITEMINFOW;
 use winapi::um::winuser::MF_BYCOMMAND;
 use winapi::um::winuser::MF_STRING;
+use winapi::um::winuser::MIIM_ID;
 use winapi::um::winuser::MIIM_STRING;
 use winapi::um::winuser::MSG;
 use winapi::um::winuser::TPM_HORNEGANIMATION;
@@ -180,16 +181,16 @@ impl TaskMenuBar {
     }
     fn register_menu_item(
         &self,
-        btn_title: String,
         item_id: usize,
-        is_static: bool,
+        btn_data: &ButtonData,
     ) -> Result<(), TaskMenuError> {
         unsafe {
+            let btn_title = &btn_data.btn_title;
             let mut menu_title = btn_title
                 .encode_utf16()
                 .chain(std::iter::once(0))
                 .collect::<Vec<u16>>();
-            if is_static {
+            if btn_data.is_static {
                 let res = AppendMenuW(self.menu_ptr, MF_STRING, item_id, menu_title.as_ptr());
                 if res == 0 {
                     let err = WindowsError::from_last_error();
@@ -201,12 +202,18 @@ impl TaskMenuBar {
             } else {
                 let mut menu_item = MENUITEMINFOW {
                     cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
-                    fMask: MIIM_STRING,
-                    wID: item_id as u32,                 // Command ID
+                    fMask: MIIM_ID | MIIM_STRING,
+                    wID: item_id as u32,
+                    dwItemData: item_id,                 // Command ID
                     dwTypeData: menu_title.as_mut_ptr(), // Pointer to the title
                     ..std::mem::zeroed()
                 };
-                let res = InsertMenuItemW(self.menu_ptr, 0, 1, &mut menu_item);
+                let res = InsertMenuItemW(
+                    self.menu_ptr,
+                    btn_data.index.unwrap_or(0) as u32,
+                    TRUE.into(),
+                    &mut menu_item,
+                );
                 if res == 0 {
                     let err = WindowsError::from_last_error();
                     return Err(TaskMenuError::Init(format!(
@@ -263,7 +270,6 @@ impl TaskMenuBar {
                 hwnd,
                 null_mut(),
             );
-
             if cmd != 0 {
                 PostMessageW(hwnd, WM_COMMAND, cmd as usize, 0);
             } else {
@@ -370,9 +376,8 @@ impl TaskMenuOperations for TaskMenuBar {
                 "Menu pointer is null".to_string(),
             ));
         };
-        let btn_title = btn_data.btn_title.clone();
         let item_id = self.increment_btn_id()?;
-        self.register_menu_item(btn_title, item_id as usize, btn_data.is_static)?;
+        self.register_menu_item(item_id as usize, &btn_data)?;
         let mut h_map = attempt_get_lock(&self.handlers)
             .map_err(|err| TaskMenuError::Unexpected(format!("{:?}", err)))?;
 
@@ -489,8 +494,9 @@ impl TaskMenuOperations for TaskMenuBar {
         TaskMenuBar::remove_tray_icon(&mut notify_icon_ptr)?;
         Ok(())
     }
+
     fn set_quit_button(&self) -> Result<(), TaskMenuError> {
-        self.register_menu_item("Quit".to_string(), ID_MENU_EXIT as usize, true)?;
+        self.register_menu_item(ID_MENU_EXIT as usize, &ButtonData::from_str_static("Quit"))?;
         Ok(())
     }
 }
