@@ -349,11 +349,3 @@ fn bind_network() -> Result<(IpAddr, UdpSocket, TcpListener), NetworkError> {
     let (socket, tcp) = init_listeners(my_local_ip)?;
     Ok((my_local_ip, socket, tcp))
 }
-
-fn add_to_connection_map(map: &mut HashMap<SocketAddr, PeerData>, k_v: (SocketAddr, PeerData)) {
-    let (k, v) = k_v;
-    if map.contains_key(&k) {
-        return;
-    }
-    map.insert(k, v);
-}
