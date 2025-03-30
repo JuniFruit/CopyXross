@@ -204,6 +204,9 @@ fn core_handle(
         // Handle message from UDP
         if res.is_some() {
             let (ip_addr, data) = res.unwrap();
+            if ip_addr.ip() == my_local_ip {
+                continue;
+            }
             let parsed = parse_message(&data).unwrap_or_else(|err| {
                 println!("Parsing error: {:?}", err);
                 MessageType::NoMessage
@@ -222,24 +225,22 @@ fn core_handle(
                     let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
                 }
                 encode::MessageType::Xcon(_data) => {
-                    if ip_addr.ip() != my_local_ip {
-                        println!("Connection got: {:?}", _data);
-                        let p_name = _data.peer_name.clone();
-                        // creating acknowledgment msg to response to all peers
-                        let ack_msg =
-                            compose_message(&MessageType::Xacn(my_peer_data.clone()), PROTOCOL_VER);
-                        if let Ok(ack_msg) = ack_msg {
-                            send_message_to_socket(&socket, ip_addr, &ack_msg);
-                        } else {
-                            println!("Failed to compose ack msg: {:?}", ack_msg.unwrap_err());
-                        }
-
-                        connection_map.insert(ip_addr.ip(), _data);
-
-                        let mut btn_data = ButtonData::from_str_dyn(&p_name);
-                        btn_data.attrs_str = Some(ip_addr.to_string());
-                        let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
+                    println!("Connection got: {:?}", _data);
+                    let p_name = _data.peer_name.clone();
+                    // creating acknowledgment msg to response to all peers
+                    let ack_msg =
+                        compose_message(&MessageType::Xacn(my_peer_data.clone()), PROTOCOL_VER);
+                    if let Ok(ack_msg) = ack_msg {
+                        send_message_to_socket(&socket, ip_addr, &ack_msg);
+                    } else {
+                        println!("Failed to compose ack msg: {:?}", ack_msg.unwrap_err());
                     }
+
+                    connection_map.insert(ip_addr.ip(), _data);
+
+                    let mut btn_data = ButtonData::from_str_dyn(&p_name);
+                    btn_data.attrs_str = Some(ip_addr.to_string());
+                    let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
                 }
                 encode::MessageType::Xdis => {
                     if let Some(data) = connection_map.remove(&ip_addr.ip()) {
