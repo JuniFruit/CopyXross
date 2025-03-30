@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     debug_println,
-    encode::{compose_message, MessageType},
+    encode::{compose_message, MessageType, PeerData},
     utils::{format_bytes_size, write_progress},
 };
 
@@ -59,10 +59,8 @@ pub fn socket(listen_on: SocketAddr) -> std::io::Result<UdpSocket> {
     }
 }
 
-pub fn listen_to_socket(socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
-    let mut buf: [u8; 1024] = [0; 1024];
-
-    let result = socket.recv_from(&mut buf);
+pub fn listen_to_socket(socket: &UdpSocket, buf: &mut [u8; 1024]) -> Option<(SocketAddr, Vec<u8>)> {
+    let result = socket.recv_from(buf);
     match result {
         Ok((_amt, src)) => {
             debug_println!(
@@ -122,9 +120,9 @@ pub fn init_listeners(my_ip: IpAddr) -> Result<(UdpSocket, TcpListener), Network
     let s = socket(bind).map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
     // s.set_broadcast(true)
     //     .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
-    s.set_read_timeout(Some(Duration::new(1, 0)))
+    s.set_read_timeout(Some(Duration::new(0, 100)))
         .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
-    s.set_write_timeout(Some(Duration::new(1, 0)))
+    s.set_write_timeout(Some(Duration::new(0, 100)))
         .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
 
     s.join_multicast_v4(&MULTICAST_IP, &my_ip.to_string().parse().unwrap())
@@ -177,4 +175,11 @@ pub fn send_bye_packet(socket: &UdpSocket, target: SocketAddr) {
     debug_println!("Sending BYE packet...");
     let disconnect_msg = compose_message(&MessageType::Xdis, PROTOCOL_VER).unwrap();
     send_message_to_socket(socket, target, &disconnect_msg);
+}
+
+pub fn send_greeting_packet(socket: &UdpSocket, target: SocketAddr, p_data: PeerData) {
+    debug_println!("Sending greeting message...");
+    let greeting_message =
+        compose_message(&MessageType::Xcon(p_data), PROTOCOL_VER).unwrap_or_default();
+    send_message_to_socket(socket, target, &greeting_message);
 }

@@ -20,6 +20,7 @@ use network::init_network_change_listener;
 use network::listen_to_socket;
 use network::listen_to_tcp;
 use network::send_bye_packet;
+use network::send_greeting_packet;
 use network::send_message_to_peer;
 use network::send_message_to_socket;
 use network::NetworkChangeListener;
@@ -28,6 +29,7 @@ use network::NetworkListener;
 use network::BROADCAST_ADDR;
 use network::PORT;
 use network::PROTOCOL_VER;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::net::TcpListener;
 use std::net::UdpSocket;
@@ -55,10 +57,6 @@ enum SyncMessage {
 
 fn main() {
     println!("Starting...");
-    while !NetworkChangeListener::is_en0_connected() {
-        println!("WiFi network cannot be found! Make sure you are connected to wifi router.");
-        thread::sleep(Duration::new(2, 0));
-    }
 
     let (_c_sender, _c_receiver) = channel::<SyncMessage>();
     let arc_c_sender = Arc::new(Mutex::new(_c_sender));
@@ -102,7 +100,13 @@ fn core_handle(
     c_sender: Arc<Mutex<Sender<SyncMessage>>>,
     c_receiver: Receiver<SyncMessage>,
 ) {
+    while !NetworkChangeListener::is_en0_connected() {
+        println!("WiFi network cannot be found! Make sure you are connected to wifi router.");
+        thread::sleep(Duration::new(2, 0));
+    }
+
     thread::sleep(Duration::new(2, 0));
+
     let c_sender_clone = c_sender.clone();
 
     let copy_event_handler = Box::new(move |e: Event| {
@@ -158,19 +162,20 @@ fn core_handle(
     let (mut my_local_ip, mut socket, mut tcp_listener) = bind_res.unwrap();
     {
         // creating greeting message to send to all peers
-        let greeting_message =
-            compose_message(&MessageType::Xcon(my_peer_data.clone()), PROTOCOL_VER)
-                .expect("Failed to compose greeting msg");
-        send_message_to_socket(&socket, BROADCAST_ADDR, &greeting_message);
+        send_greeting_packet(&socket, BROADCAST_ADDR, my_peer_data.clone());
     }
 
     let nw_change_debounce = Duration::new(2, 0);
     let mut tcp_buff: Vec<u8> = Vec::with_capacity(5024);
+    let mut udp_buff: [u8; 1024] = [0; 1024];
     let mut last_nw_change_time: Option<Instant> = None;
     // main listener loop
     loop {
         if !tcp_buff.is_empty() {
             tcp_buff.clear();
+        }
+        if udp_buff[0] != 0 {
+            udp_buff = [0; 1024];
         }
 
         // rebind listeners when debounce time elapses for nw change
@@ -191,14 +196,15 @@ fn core_handle(
                 my_local_ip = bind_res.0;
                 socket = bind_res.1;
                 tcp_listener = bind_res.2;
-                println!("Listeners recreated.")
+                println!("Listeners recreated.");
+                send_greeting_packet(&socket, BROADCAST_ADDR, my_peer_data.clone());
             }
         }
 
         // receive SyncMessages
         let client_res = c_receiver.try_recv();
         // Listen to UDP datagrams
-        let res = listen_to_socket(&socket);
+        let res = listen_to_socket(&socket, &mut udp_buff);
         // Listen to TCP packets
         let tcp_res = listen_to_tcp(&tcp_listener, &mut tcp_buff);
         // Handle message from UDP
@@ -219,10 +225,13 @@ fn core_handle(
                     println!("Ack got: {:?}", _data);
                     let p_name = _data.peer_name.clone();
 
-                    connection_map.insert(ip_addr.ip(), _data);
-                    let mut btn_data = ButtonData::from_str_dyn(&p_name);
-                    btn_data.attrs_str = Some(ip_addr.to_string());
-                    let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
+                    let ip = ip_addr.ip();
+                    if let Entry::Vacant(_) = connection_map.entry(ip) {
+                        connection_map.insert(ip, _data);
+                        let mut btn_data = ButtonData::from_str_dyn(&p_name);
+                        btn_data.attrs_str = Some(ip_addr.to_string());
+                        let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
+                    }
                 }
                 encode::MessageType::Xcon(_data) => {
                     println!("Connection got: {:?}", _data);
@@ -235,12 +244,14 @@ fn core_handle(
                     } else {
                         println!("Failed to compose ack msg: {:?}", ack_msg.unwrap_err());
                     }
+                    let ip = ip_addr.ip();
 
-                    connection_map.insert(ip_addr.ip(), _data);
-
-                    let mut btn_data = ButtonData::from_str_dyn(&p_name);
-                    btn_data.attrs_str = Some(ip_addr.to_string());
-                    let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
+                    if let Entry::Vacant(_) = connection_map.entry(ip) {
+                        connection_map.insert(ip, _data);
+                        let mut btn_data = ButtonData::from_str_dyn(&p_name);
+                        btn_data.attrs_str = Some(ip_addr.to_string());
+                        let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
+                    }
                 }
                 encode::MessageType::Xdis => {
                     if let Some(data) = connection_map.remove(&ip_addr.ip()) {
@@ -337,4 +348,12 @@ fn bind_network() -> Result<(IpAddr, UdpSocket, TcpListener), NetworkError> {
     // bind listener
     let (socket, tcp) = init_listeners(my_local_ip)?;
     Ok((my_local_ip, socket, tcp))
+}
+
+fn add_to_connection_map(map: &mut HashMap<SocketAddr, PeerData>, k_v: (SocketAddr, PeerData)) {
+    let (k, v) = k_v;
+    if map.contains_key(&k) {
+        return;
+    }
+    map.insert(k, v);
 }
