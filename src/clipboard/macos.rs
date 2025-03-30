@@ -5,6 +5,7 @@ use super::StringType;
 use crate::debug_println;
 use crate::utils::create_file;
 use crate::utils::extract_plain_str_from_html;
+use crate::utils::macos::ObjectId;
 use crate::utils::open_file;
 use dirs_next::desktop_dir;
 use objc::class;
@@ -28,7 +29,6 @@ extern "C" {}
 //     length: usize,
 // }
 
-type ObjectId = *mut Object;
 type NSData = ObjectId;
 type NSType = ObjectId;
 

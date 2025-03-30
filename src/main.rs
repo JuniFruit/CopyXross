@@ -16,12 +16,15 @@ use encode::MessageType;
 use encode::PeerData;
 use local_ip_address::local_ip;
 use network::init_listeners;
+use network::init_network_change_listener;
 use network::listen_to_socket;
 use network::listen_to_tcp;
 use network::send_bye_packet;
 use network::send_message_to_peer;
 use network::send_message_to_socket;
+use network::NetworkChangeListener;
 use network::NetworkError;
+use network::NetworkListener;
 use network::BROADCAST_ADDR;
 use network::PORT;
 use network::PROTOCOL_VER;
@@ -36,6 +39,8 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
+use std::time::Duration;
+use std::time::Instant;
 use utils::attempt_get_lock;
 use utils::get_pc_name;
 
@@ -44,22 +49,36 @@ use utils::get_pc_name;
 enum SyncMessage {
     Stop,
     Discover,
+    NetworkChange,
     Cmd((SocketAddr, MessageType)),
 }
 
 fn main() {
     println!("Starting...");
+    while !NetworkChangeListener::is_en0_connected() {
+        println!("WiFi network cannot be found! Make sure you are connected to wifi router.");
+        thread::sleep(Duration::new(2, 0));
+    }
+
     let (_c_sender, _c_receiver) = channel::<SyncMessage>();
     let arc_c_sender = Arc::new(Mutex::new(_c_sender));
     let c_sender = arc_c_sender.clone();
+    let c_sender_clone = c_sender.clone();
+    let network_change_cb = Box::new(move || {
+        if !NetworkChangeListener::is_en0_connected() {
+            return;
+        }
+        if let Ok(sender) = attempt_get_lock(&c_sender_clone) {
+            let _ = sender.send(SyncMessage::NetworkChange);
+        };
+    });
+    let listener = init_network_change_listener(Some(network_change_cb)).unwrap();
+
+    listener.start_listen().unwrap();
 
     let app = Arc::new(init_taskmenu().expect("Init error"));
     let app_arc = app.clone();
     let core_thread = thread::spawn(move || core_handle(app_arc, arc_c_sender, _c_receiver));
-
-    if core_thread.is_finished() {
-        panic!("Program failed to start successfully");
-    }
 
     app.run().expect("App failed to run");
 
@@ -83,6 +102,7 @@ fn core_handle(
     c_sender: Arc<Mutex<Sender<SyncMessage>>>,
     c_receiver: Receiver<SyncMessage>,
 ) {
+    thread::sleep(Duration::new(2, 0));
     let c_sender_clone = c_sender.clone();
 
     let copy_event_handler = Box::new(move |e: Event| {
@@ -98,19 +118,27 @@ fn core_handle(
         }
     });
 
-    app_menu
-        .add_menu_item(
-            ButtonData::from_str_static("Discover"),
-            Box::new(move |_| {
-                if let Ok(sender) = attempt_get_lock(&c_sender_clone) {
-                    let _ = sender.send(SyncMessage::Discover);
-                };
-            }),
-        )
-        .unwrap();
+    let btn_res = app_menu.add_menu_item(
+        ButtonData::from_str_static("Discover"),
+        Box::new(move |_| {
+            if let Ok(sender) = attempt_get_lock(&c_sender_clone) {
+                let _ = sender.send(SyncMessage::Discover);
+            };
+        }),
+    );
+
+    if btn_res.is_err() {
+        let _ = app_menu.stop();
+        return;
+    }
 
     let mut connection_map: HashMap<IpAddr, PeerData> = HashMap::new();
-    let cp = new_clipboard().unwrap();
+    let cp = new_clipboard();
+    if cp.is_err() {
+        let _ = app_menu.stop();
+        return;
+    }
+    let cp = cp.unwrap();
 
     // getting my peer name
     let my_peer_name = get_pc_name();
@@ -120,7 +148,14 @@ fn core_handle(
     };
 
     // bind listener
-    let (my_local_ip, socket, tcp_listener) = bind_network();
+    let bind_res = bind_network();
+    if bind_res.is_err() {
+        println!("{:?}", bind_res.unwrap_err());
+        let _ = app_menu.stop();
+        return;
+    }
+
+    let (mut my_local_ip, mut socket, mut tcp_listener) = bind_res.unwrap();
     {
         // creating greeting message to send to all peers
         let greeting_message =
@@ -129,16 +164,44 @@ fn core_handle(
         send_message_to_socket(&socket, BROADCAST_ADDR, &greeting_message);
     }
 
+    let nw_change_debounce = Duration::new(2, 0);
     let mut tcp_buff: Vec<u8> = Vec::with_capacity(5024);
+    let mut last_nw_change_time: Option<Instant> = None;
     // main listener loop
     loop {
         if !tcp_buff.is_empty() {
             tcp_buff.clear();
         }
 
+        // rebind listeners when debounce time elapses for nw change
+        if last_nw_change_time.is_some() {
+            let time_now = Instant::now();
+            let elapsed = time_now.duration_since(last_nw_change_time.unwrap());
+            if elapsed > nw_change_debounce {
+                println!("Network change detected, binding listeners...");
+                last_nw_change_time = None;
+                connection_map.clear();
+                let _ = app_menu.remove_all_dyn();
+                let bind_res = bind_network();
+                if bind_res.is_err() {
+                    println!("{:?}", bind_res.unwrap_err());
+                    continue;
+                }
+                let bind_res = bind_res.unwrap();
+                my_local_ip = bind_res.0;
+                socket = bind_res.1;
+                tcp_listener = bind_res.2;
+                println!("Listeners recreated.")
+            }
+        }
+
+        // receive SyncMessages
         let client_res = c_receiver.try_recv();
+        // Listen to UDP datagrams
         let res = listen_to_socket(&socket);
+        // Listen to TCP packets
         let tcp_res = listen_to_tcp(&tcp_listener, &mut tcp_buff);
+        // Handle message from UDP
         if res.is_some() {
             let (ip_addr, data) = res.unwrap();
             let parsed = parse_message(&data).unwrap_or_else(|err| {
@@ -207,6 +270,7 @@ fn core_handle(
                 _ => {}
             }
         }
+        // Handle msg from TCP (usually data to write into CP)
         if tcp_res.is_ok() {
             let _ = tcp_res.unwrap();
             let parsed = parse_message(&tcp_buff).unwrap_or_else(|err| {
@@ -228,6 +292,7 @@ fn core_handle(
             }
         }
 
+        // Handle SyncMessages from other parts of the app
         if client_res.is_ok() {
             let msg = client_res.unwrap();
             #[allow(clippy::collapsible_match)]
@@ -250,20 +315,25 @@ fn core_handle(
                     connection_map.clear();
                     let greeting_message =
                         compose_message(&MessageType::Xcon(my_peer_data.clone()), PROTOCOL_VER)
-                            .expect("Failed to compose greeting msg");
+                            .unwrap_or_default();
                     send_message_to_socket(&socket, BROADCAST_ADDR, &greeting_message);
+                }
+                SyncMessage::NetworkChange => {
+                    last_nw_change_time = Some(Instant::now());
                 }
             };
         }
     }
+    let _ = app_menu.remove_menu_item(ButtonData::from_str_static("Discover"));
     send_bye_packet(&socket, BROADCAST_ADDR);
 }
 
-fn bind_network() -> (IpAddr, UdpSocket, TcpListener) {
+fn bind_network() -> Result<(IpAddr, UdpSocket, TcpListener), NetworkError> {
     println!("Binding listeners...");
-    let my_local_ip = local_ip().unwrap();
+    let my_local_ip = local_ip()
+        .map_err(|err| NetworkError::Unexpected(format!("Could not get ip: {:?}", err)))?;
     println!("This is my local IP address: {:?}", my_local_ip);
     // bind listener
-    let (socket, tcp) = init_listeners(my_local_ip).expect("Could not initiate network");
-    (my_local_ip, socket, tcp)
+    let (socket, tcp) = init_listeners(my_local_ip)?;
+    Ok((my_local_ip, socket, tcp))
 }

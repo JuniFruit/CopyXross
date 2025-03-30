@@ -1,3 +1,6 @@
+#[cfg(target_os = "macos")]
+pub mod macos;
+
 use std::{
     io::{ErrorKind, Read, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket},
@@ -17,6 +20,8 @@ pub enum NetworkError {
     Write(String),
     Read(String),
     Blocked,
+    Init(String),
+    Unexpected(String),
 }
 
 pub const PROTOCOL_VER: u32 = 1;
@@ -24,6 +29,21 @@ pub const PORT: u16 = 53300;
 
 pub const MULTICAST_IP: Ipv4Addr = Ipv4Addr::new(239, 255, 255, 250);
 pub const BROADCAST_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(MULTICAST_IP), PORT);
+
+pub trait NetworkListener: Sized {
+    fn init(cb: Option<Box<dyn Fn()>>) -> Result<Self, NetworkError>;
+    fn start_listen(&self) -> Result<(), NetworkError>;
+    fn is_en0_connected() -> bool;
+}
+
+#[cfg(target_os = "macos")]
+pub use macos::Network as NetworkChangeListener;
+
+pub fn init_network_change_listener(
+    cb: Option<Box<dyn Fn()>>,
+) -> Result<impl NetworkListener, NetworkError> {
+    NetworkChangeListener::init(cb)
+}
 
 pub fn socket(listen_on: SocketAddr) -> std::io::Result<UdpSocket> {
     let attempt = UdpSocket::bind(listen_on);

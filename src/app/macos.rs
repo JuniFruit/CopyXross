@@ -19,14 +19,13 @@ use crate::utils::attempt_get_lock;
 use crate::utils::get_asset_path;
 use crate::utils::macos::catch_and_log_exception;
 use crate::utils::macos::get_error;
+use crate::utils::macos::ObjectId;
 
 use super::ButtonData;
 use super::ButtonFullData;
 use super::CallbackFn;
 use super::TaskMenuError;
 use super::TaskMenuOperations;
-
-type ObjectId = *mut Object;
 
 #[allow(dead_code)]
 pub struct TaskMenuBar {
@@ -378,6 +377,23 @@ impl TaskMenuOperations for TaskMenuBar {
             if !res.error.is_null() {
                 let err = get_error(res.error as ObjectId);
                 Err(TaskMenuError::Init(err))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    fn stop(&self) -> Result<(), TaskMenuError> {
+        unsafe {
+            let res = catch_and_log_exception(
+                |app| {
+                    let app = app as ObjectId;
+                    let _: () = msg_send![app, stop: app];
+                    ptr::null_mut()
+                },
+                self.app_ref as *mut _,
+            );
+            if !res.error.is_null() {
+                Err(TaskMenuError::Unexpected(get_error(res.error as ObjectId)))
             } else {
                 Ok(())
             }

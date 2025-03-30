@@ -16,6 +16,7 @@ struct ButtonFullData {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ButtonData {
     pub btn_title: String,
     pub attrs_str: Option<String>,
@@ -53,6 +54,7 @@ pub trait TaskMenuOperations: Sized + Sync + Send {
     fn set_quit_button(&self) -> Result<(), TaskMenuError>;
     fn remove_menu_item(&self, btn_data: ButtonData) -> Result<(), TaskMenuError>;
     fn remove_all_dyn(&self) -> Result<(), TaskMenuError>;
+    fn stop(&self) -> Result<(), TaskMenuError>;
     fn run(&self) -> Result<(), TaskMenuError>;
 }
 
