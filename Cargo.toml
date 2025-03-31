@@ -15,6 +15,8 @@ winapi = { version = "0.3", features = [
   "winuser",
   "errhandlingapi",
   "shellapi",
+  "netioapi",
+  "wlanapi"
 ] }
 
 

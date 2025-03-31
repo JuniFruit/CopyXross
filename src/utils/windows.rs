@@ -1,6 +1,7 @@
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
 
+use winapi::shared::minwindef::DWORD;
 use winapi::shared::winerror::*;
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::winbase::GetComputerNameW;

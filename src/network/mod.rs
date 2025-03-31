@@ -1,5 +1,7 @@
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 use std::{
     io::{ErrorKind, Read, Write},
@@ -38,6 +40,8 @@ pub trait NetworkListener: Sized {
 
 #[cfg(target_os = "macos")]
 pub use macos::Network as NetworkChangeListener;
+#[cfg(target_os = "windows")]
+pub use windows::Network as NetworkChangeListener;
 
 pub fn init_network_change_listener(
     cb: Option<Box<dyn Fn()>>,

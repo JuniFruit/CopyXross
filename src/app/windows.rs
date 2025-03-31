@@ -499,6 +499,13 @@ impl TaskMenuOperations for TaskMenuBar {
         self.register_menu_item(ID_MENU_EXIT as usize, &ButtonData::from_str_static("Quit"))?;
         Ok(())
     }
+
+    fn stop(&self) -> Result<(), TaskMenuError> {
+        unsafe {
+            PostMessageW(self.window_ptr, WM_COMMAND, ID_MENU_EXIT as usize, 0);
+            Ok(())
+        }
+    }
 }
 // SAFETY: We manually implement Send/Sync because object pointers will
 // only be used on one thread at a time.

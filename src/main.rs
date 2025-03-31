@@ -63,9 +63,6 @@ fn main() {
     let c_sender = arc_c_sender.clone();
     let c_sender_clone = c_sender.clone();
     let network_change_cb = Box::new(move || {
-        if !NetworkChangeListener::is_en0_connected() {
-            return;
-        }
         if let Ok(sender) = attempt_get_lock(&c_sender_clone) {
             let _ = sender.send(SyncMessage::NetworkChange);
         };
@@ -103,6 +100,16 @@ fn core_handle(
     while !NetworkChangeListener::is_en0_connected() {
         println!("WiFi network cannot be found! Make sure you are connected to wifi router.");
         thread::sleep(Duration::new(2, 0));
+        let cmd_msg = c_receiver.try_recv();
+        if cmd_msg.is_ok() {
+            let msg = cmd_msg.unwrap();
+            match msg {
+                SyncMessage::Stop => {
+                    return;
+                }
+                _ => {}
+            };
+        }
     }
 
     thread::sleep(Duration::new(2, 0));
@@ -166,6 +173,8 @@ fn core_handle(
     }
 
     let nw_change_debounce = Duration::new(2, 0);
+    let rediscover_timeframe = Duration::new(60 * 5, 0); // rediscover every 5 min
+    let mut last_rediscover = Instant::now();
     let mut tcp_buff: Vec<u8> = Vec::with_capacity(5024);
     let mut udp_buff: [u8; 1024] = [0; 1024];
     let mut last_nw_change_time: Option<Instant> = None;
@@ -176,6 +185,13 @@ fn core_handle(
         }
         if udp_buff[0] != 0 {
             udp_buff = [0; 1024];
+        }
+
+        if Instant::now().duration_since(last_rediscover) > rediscover_timeframe {
+            let _ = app_menu.remove_all_dyn();
+            connection_map.clear();
+            send_greeting_packet(&socket, BROADCAST_ADDR, my_peer_data.clone());
+            last_rediscover = Instant::now();
         }
 
         // rebind listeners when debounce time elapses for nw change
@@ -325,10 +341,8 @@ fn core_handle(
                 SyncMessage::Discover => {
                     let _ = app_menu.remove_all_dyn();
                     connection_map.clear();
-                    let greeting_message =
-                        compose_message(&MessageType::Xcon(my_peer_data.clone()), PROTOCOL_VER)
-                            .unwrap_or_default();
-                    send_message_to_socket(&socket, BROADCAST_ADDR, &greeting_message);
+                    send_greeting_packet(&socket, BROADCAST_ADDR, my_peer_data.clone());
+                    last_rediscover = Instant::now();
                 }
                 SyncMessage::NetworkChange => {
                     last_nw_change_time = Some(Instant::now());
