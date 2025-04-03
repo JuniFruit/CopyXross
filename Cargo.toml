@@ -2,6 +2,7 @@
 name = "copyxross"
 version = "0.1.0"
 edition = "2021"
+description = "Tool for Copy/Pasting across machines in local network"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 build = "build.rs"
@@ -17,7 +18,7 @@ winapi = { version = "0.3", features = [
   "shellapi",
   "netioapi",
   "wlanapi",
-  "winreg"
+  "winreg",
 ] }
 
 
@@ -25,3 +26,15 @@ winapi = { version = "0.3", features = [
 local-ip-address = "0.6.3"
 dirs-next = "2.0.0"
 chrono = "0.4.40"
+
+[package.metadata.bundle]
+
+short_description = 'Application that allows Copy/Paste across machines within local WiFi network"long_description = "Copy/Paste across local machines with ease.'
+name = 'copyxross'
+identifier = "com.copyxross.copyxrossapp"
+icon = ["tray_32.ico"]
+version = "1.0.0"
+resources = ["assets"]
+copyright = "This program is licensed either under the terms of the the MIT License."
+category = "Developer Tool"
+
