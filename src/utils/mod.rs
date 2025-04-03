@@ -135,7 +135,6 @@ pub fn log_into_file(str: &str) -> Result<()> {
     // Check file size and override if needed
     let mut path = dirs_next::data_local_dir().unwrap_or(PathBuf::from(""));
     path.push(LOG_FILE);
-    println!("{:?}", path);
 
     if let Ok(meta) = metadata(&path) {
         if meta.len() > MAX_FILE_SIZE {
