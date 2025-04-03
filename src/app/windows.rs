@@ -7,6 +7,7 @@ use std::ptr::null_mut;
 use std::rc::Rc;
 use std::sync::Mutex;
 
+use winapi::shared::minwindef::HKEY;
 use winapi::shared::minwindef::LPARAM;
 use winapi::shared::minwindef::LRESULT;
 use winapi::shared::minwindef::WPARAM;
@@ -14,6 +15,7 @@ use winapi::shared::ntdef::{FALSE, TRUE};
 use winapi::shared::windef::HMENU;
 use winapi::shared::windef::HWND;
 use winapi::shared::windef::POINT;
+use winapi::shared::winerror::ERROR_SUCCESS;
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::um::shellapi::Shell_NotifyIconW;
 use winapi::um::shellapi::NIF_ICON;
@@ -22,6 +24,15 @@ use winapi::um::shellapi::NIF_TIP;
 use winapi::um::shellapi::NIM_ADD;
 use winapi::um::shellapi::NIM_DELETE;
 use winapi::um::shellapi::NOTIFYICONDATAW;
+use winapi::um::winnt::KEY_SET_VALUE;
+use winapi::um::winnt::REG_SZ;
+use winapi::um::winreg::RegCloseKey;
+use winapi::um::winreg::RegDeleteValueA;
+use winapi::um::winreg::RegGetValueA;
+use winapi::um::winreg::RegOpenKeyExA;
+use winapi::um::winreg::RegSetValueExA;
+use winapi::um::winreg::HKEY_CURRENT_USER;
+use winapi::um::winreg::RRF_RT_REG_SZ;
 use winapi::um::winuser::AppendMenuW;
 use winapi::um::winuser::CreatePopupMenu;
 use winapi::um::winuser::CreateWindowExW;
@@ -32,6 +43,7 @@ use winapi::um::winuser::GetCursorPos;
 use winapi::um::winuser::GetMessageW;
 use winapi::um::winuser::InsertMenuItemW;
 use winapi::um::winuser::LoadImageW;
+use winapi::um::winuser::ModifyMenuW;
 use winapi::um::winuser::PostMessageW;
 use winapi::um::winuser::RegisterClassW;
 use winapi::um::winuser::RemoveMenu;
@@ -59,6 +71,7 @@ use winapi::um::winuser::WNDCLASSW;
 use crate::debug_println;
 use crate::utils::attempt_get_lock;
 use crate::utils::get_asset_path;
+use crate::utils::log_into_file;
 use crate::utils::windows::WindowsError;
 
 use super::ButtonData;
@@ -75,6 +88,10 @@ pub struct TaskMenuBar {
 }
 const WM_TRAYICON: u32 = 2;
 const ID_MENU_EXIT: u32 = 1;
+const ID_AUTORUN_TOGGLE: u32 = 2;
+const APP_NAME: &str = "copyxross\0"; // Name of the registry value, not the key
+const REG_PATH: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run\0";
+#[allow(unused_must_use)]
 impl TaskMenuBar {
     unsafe extern "system" fn window_proc(
         hwnd: HWND,
@@ -114,7 +131,113 @@ impl TaskMenuBar {
             }
         }
     }
+    fn modify_button_title(&self, btn_id: u32, title: String) -> Result<(), TaskMenuError> {
+        unsafe {
+            let mut menu_title = title
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect::<Vec<u16>>();
+            let res = ModifyMenuW(
+                self.menu_ptr,
+                btn_id,
+                MF_STRING,
+                btn_id as usize,
+                menu_title.as_mut_ptr(),
+            );
+            if res == 0 {
+                return Err(TaskMenuError::Unexpected(format!(
+                    "Failed to modify button title: {:?}",
+                    WindowsError::from_last_error()
+                )));
+            }
+            Ok(())
+        }
+    }
+    fn toggle_autorun(&self) -> Result<(), TaskMenuError> {
+        unsafe {
+            let enabled = TaskMenuBar::is_autorun_enabled().unwrap_or(false);
+            let mut hkey: HKEY = null_mut();
+            let res = RegOpenKeyExA(
+                HKEY_CURRENT_USER,
+                REG_PATH.as_bytes().as_ptr() as *const i8,
+                0,
+                KEY_SET_VALUE,
+                &mut hkey,
+            );
+            if res != ERROR_SUCCESS as i32 {
+                return Err(TaskMenuError::Unexpected(format!(
+                    "Failed to open registry: {:?}",
+                    WindowsError::from(res as u32)
+                )));
+            }
 
+            if !enabled {
+                let exe_path = std::env::current_exe().map_err(|e| {
+                    TaskMenuError::Unexpected(format!("Failed to get current exe path: {:?}", e))
+                })?;
+                let exe_path_str = exe_path.to_str();
+                if exe_path_str.is_none() {
+                    return Err(TaskMenuError::Unexpected("No exe path found".to_string()));
+                }
+                let exe_path_str = exe_path_str.unwrap();
+                let mut exe_path_str = exe_path_str.as_bytes().to_vec();
+                exe_path_str.push(0);
+
+                let res = RegSetValueExA(
+                    hkey,
+                    APP_NAME.as_bytes().as_ptr() as *const i8,
+                    0,
+                    REG_SZ,
+                    exe_path_str.as_ptr(),
+                    exe_path_str.len() as u32,
+                );
+                if res != ERROR_SUCCESS as i32 {
+                    RegCloseKey(hkey);
+                    return Err(TaskMenuError::Unexpected(format!(
+                        "Failed to enable autorun: {:?}",
+                        WindowsError::from(res as u32)
+                    )));
+                }
+                self.modify_button_title(ID_AUTORUN_TOGGLE, "Disable autorun".to_string())?;
+            } else {
+                let res = RegDeleteValueA(hkey, APP_NAME.as_bytes().as_ptr() as *const i8);
+                if res != ERROR_SUCCESS as i32 {
+                    RegCloseKey(hkey);
+                    return Err(TaskMenuError::Unexpected(format!(
+                        "Failed to disable autorun: {:?}",
+                        WindowsError::from(res as u32)
+                    )));
+                }
+                self.modify_button_title(ID_AUTORUN_TOGGLE, "Enable autorun".to_string())?;
+            }
+
+            RegCloseKey(hkey);
+            Ok(())
+        }
+    }
+    fn is_autorun_enabled() -> Result<bool, TaskMenuError> {
+        unsafe {
+            let mut data_len: u32 = 0;
+            let res = RegGetValueA(
+                HKEY_CURRENT_USER,
+                REG_PATH.as_bytes().as_ptr() as *const i8,
+                APP_NAME.as_bytes().as_ptr() as *const i8,
+                RRF_RT_REG_SZ,
+                null_mut(),
+                null_mut(),
+                &mut data_len,
+            );
+            // RegCloseKey(hkey);
+            if res != ERROR_SUCCESS as i32 {
+                return Err(TaskMenuError::Unexpected(format!(
+                    "Could not check registry: {:?}",
+                    WindowsError::from(res as u32)
+                )));
+            }
+
+            Ok(res == ERROR_SUCCESS as i32 && data_len > 0)
+        }
+    }
     fn add_tray_btn(window_ptr: HWND) -> Result<NOTIFYICONDATAW, TaskMenuError> {
         unsafe {
             let icon_path = get_asset_path("tray_16.ico").map_err(|err| {
@@ -298,7 +421,7 @@ impl TaskMenuBar {
                         // }
                         WM_RBUTTONUP => {
                             if let Err(err) = self.show_tray_menu() {
-                                println!("{:?}", err);
+                                log_into_file(format!("{:?}", err).as_str());
                             }
                         }
                         _ => {}
@@ -306,6 +429,15 @@ impl TaskMenuBar {
                     WM_COMMAND => match msg.wParam as u32 {
                         ID_MENU_EXIT => {
                             return Ok(());
+                        }
+                        ID_AUTORUN_TOGGLE => {
+                            let res = self.toggle_autorun();
+                            if res.is_err() {
+                                log_into_file(
+                                    format!("Could not set autorun: {:?}", res.unwrap_err())
+                                        .as_str(),
+                                );
+                            }
                         }
                         _ => {
                             let is_handled = self.handle_click(msg.wParam as u32);
@@ -426,6 +558,21 @@ impl TaskMenuOperations for TaskMenuBar {
                 "Could not find button to delete!".to_string(),
             ))
         }
+    }
+    fn set_autorun_button(&self) -> Result<(), TaskMenuError> {
+        let is_enabled = TaskMenuBar::is_autorun_enabled().unwrap_or(false);
+
+        let new_label = if is_enabled {
+            "Disable Autorun"
+        } else {
+            "Enable Autorun"
+        };
+
+        self.register_menu_item(
+            ID_AUTORUN_TOGGLE as usize,
+            &ButtonData::from_str_static(new_label),
+        )?;
+        Ok(())
     }
     fn init() -> Result<Self, TaskMenuError> {
         unsafe {

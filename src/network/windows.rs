@@ -18,6 +18,7 @@ use winapi::um::wlanapi::WLAN_INTERFACE_INFO_LIST;
 use winapi::um::wlanapi::WLAN_RADIO_STATE;
 
 use crate::debug_println;
+use crate::utils::log_into_file;
 use crate::utils::windows::WindowsError;
 
 use super::NetworkListener;
@@ -121,9 +122,12 @@ impl NetworkListener for Network {
             let open_handle_res =
                 WlanOpenHandle(2, null_mut(), &mut negotiated_version, &mut handle);
             if open_handle_res != ERROR_SUCCESS {
-                println!(
-                    "Failed to open handle: {:?}",
-                    WindowsError::from(open_handle_res)
+                let _ = log_into_file(
+                    format!(
+                        "Failed to open handle: {:?}",
+                        WindowsError::from(open_handle_res)
+                    )
+                    .as_str(),
                 );
                 return false;
             }
@@ -133,9 +137,12 @@ impl NetworkListener for Network {
             // Get list of Wi-Fi interfaces
             let wlan_enum_res = WlanEnumInterfaces(handle, null_mut(), &mut interface_list_ptr);
             if wlan_enum_res != ERROR_SUCCESS {
-                println!(
-                    "Failed to enum interfaces: {:?}",
-                    WindowsError::from(wlan_enum_res)
+                let _ = log_into_file(
+                    format!(
+                        "Failed to enum interfaces: {:?}",
+                        WindowsError::from(wlan_enum_res)
+                    )
+                    .as_str(),
                 );
                 WlanCloseHandle(handle, null_mut());
                 return false;
@@ -169,7 +176,9 @@ impl NetworkListener for Network {
             );
 
             if result != ERROR_SUCCESS {
-                println!("Failed to query wifi btn: {:?}", WindowsError::from(result));
+                let _ = log_into_file(
+                    format!("Failed to query wifi btn: {:?}", WindowsError::from(result)).as_str(),
+                );
                 Network::free_wlan(interface_list_ptr as *mut _);
                 Network::free_wlan(radio_state_ptr as *mut _);
                 WlanCloseHandle(handle, null_mut());

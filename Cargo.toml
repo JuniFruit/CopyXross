@@ -16,10 +16,12 @@ winapi = { version = "0.3", features = [
   "errhandlingapi",
   "shellapi",
   "netioapi",
-  "wlanapi"
+  "wlanapi",
+  "winreg"
 ] }
 
 
 [dependencies]
 local-ip-address = "0.6.3"
 dirs-next = "2.0.0"
+chrono = "0.4.40"

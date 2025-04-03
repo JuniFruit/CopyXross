@@ -56,6 +56,7 @@ pub trait TaskMenuOperations: Sized + Sync + Send {
     fn remove_all_dyn(&self) -> Result<(), TaskMenuError>;
     fn stop(&self) -> Result<(), TaskMenuError>;
     fn run(&self) -> Result<(), TaskMenuError>;
+    fn set_autorun_button(&self) -> Result<(), TaskMenuError>;
 }
 
 #[cfg(target_os = "macos")]
@@ -65,6 +66,7 @@ use windows::TaskMenuBar as PlatformTaskBar;
 
 pub fn init_taskmenu() -> Result<impl TaskMenuOperations, TaskMenuError> {
     let bar = PlatformTaskBar::init()?;
+    bar.set_autorun_button()?;
     bar.set_quit_button()?;
     Ok(bar)
 }

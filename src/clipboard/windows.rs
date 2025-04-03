@@ -424,18 +424,25 @@ impl Clipboard for WindowsClipboard {
             WindowsClipboard::print_cp_types();
         }
 
-        let cp_type = WindowsClipboard::get_clipboard_type()?;
+        let cp_type = WindowsClipboard::get_clipboard_type();
 
-        // Handle different clipboard formats
-        let result = match cp_type {
-            ClipboardType::TEXT => Self::read_text(),
-            ClipboardType::FILE => Self::read_file(),
-            ClipboardType::IMAGE => Err(ClipboardError::Read(
-                "Clipboard contains an image (DIB)".to_string(),
-            )),
-        };
-
-        WindowsClipboard::close()?;
-        result
+        match cp_type {
+            Ok(cp_type) => {
+                // Handle different clipboard formats
+                let result = match cp_type {
+                    ClipboardType::TEXT => Self::read_text(),
+                    ClipboardType::FILE => Self::read_file(),
+                    ClipboardType::IMAGE => Err(ClipboardError::Read(
+                        "Clipboard contains an image (DIB)".to_string(),
+                    )),
+                };
+                WindowsClipboard::close()?;
+                result
+            }
+            Err(err) => {
+                WindowsClipboard::close()?;
+                Err(err)
+            }
+        }
     }
 }

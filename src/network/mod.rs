@@ -12,7 +12,7 @@ use std::{
 use crate::{
     debug_println,
     encode::{compose_message, MessageType, PeerData},
-    utils::{format_bytes_size, write_progress},
+    utils::{format_bytes_size, log_into_file, write_progress},
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -53,11 +53,11 @@ pub fn socket(listen_on: SocketAddr) -> std::io::Result<UdpSocket> {
     let attempt = UdpSocket::bind(listen_on);
     match attempt {
         Ok(sock) => {
-            println!("Bound socket to {}", listen_on);
+            let _ = log_into_file(format!("Bound socket to {}", listen_on).as_str());
             Ok(sock)
         }
         Err(err) => {
-            println!("Could not bind: {:?}", err);
+            let _ = log_into_file(format!("Could not bind: {:?}", err).as_str());
             Err(err)
         }
     }

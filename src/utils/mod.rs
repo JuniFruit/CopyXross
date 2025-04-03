@@ -1,5 +1,6 @@
 #[cfg(target_os = "macos")]
 pub mod macos;
+use chrono::{DateTime, Local};
 #[cfg(target_os = "macos")]
 pub use macos::get_host_name as get_pc_name;
 #[cfg(target_os = "windows")]
@@ -7,10 +8,12 @@ pub mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::get_host_name as get_pc_name;
 
+use std::fs::{metadata, write, File, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 use std::{env, fs};
 
 const KX: u32 = 123456789;
@@ -122,6 +125,28 @@ pub fn extract_plain_str_from_html(html: &str) -> String {
         }
     }
     result
+}
+
+const LOG_FILE: &str = "app.log";
+const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50MB limit
+
+pub fn log_into_file(str: &str) -> Result<()> {
+    debug_println!("{:?}", str);
+    // Check file size and override if needed
+    if let Ok(meta) = metadata(LOG_FILE) {
+        if meta.len() > MAX_FILE_SIZE {
+            File::create(LOG_FILE)?; // Override the file
+        }
+    }
+
+    // Append message to the log file
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(LOG_FILE)?;
+
+    file.write(format!("[{:?}]:{:?}\n", Local::now(), str).as_bytes())?;
+    Ok(())
 }
 
 pub fn attempt_get_lock<T>(p: &Mutex<T>) -> std::result::Result<MutexGuard<T>, ()> {

@@ -7,6 +7,8 @@ use winapi::um::winbase::GetComputerNameW;
 
 use crate::debug_println;
 
+use super::log_into_file;
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum WindowsError {
@@ -90,9 +92,12 @@ pub fn get_host_name() -> String {
         let mut size = (buff.len() * 2) as u32;
         let res = GetComputerNameW(buff.as_mut_ptr(), &mut size);
         if res == 0 {
-            println!(
-                "Could not get PC name: {:?}",
-                WindowsError::from_last_error()
+            let _ = log_into_file(
+                format!(
+                    "Could not get PC name: {:?}",
+                    WindowsError::from_last_error()
+                )
+                .as_str(),
             );
             return "Unknown WIN Machine".to_string();
         }

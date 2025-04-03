@@ -4,6 +4,7 @@ use crate::clipboard::ClipboardData;
 use crate::clipboard::StringType;
 use crate::debug_println;
 use crate::utils::format_bytes_size;
+use crate::utils::log_into_file;
 
 use super::protocol::check_offset_bounds;
 use super::protocol::encode_chunks;
@@ -28,7 +29,7 @@ impl Transferable for PeerData {
         let mut encoded: Vec<u8> = Vec::with_capacity((size_of::<Self>() - 24) + str_len + 1);
 
         let str_len: u8 = str_len.try_into().map_err(|err| {
-            println!("Failed to serialize PeerData: {:?}", err);
+            let _ = log_into_file(format!("Failed to serialize PeerData: {:?}", err).as_str());
             EncodeError::Overflow
         })?;
         encoded.extend(str_len.to_be_bytes());
@@ -43,18 +44,24 @@ impl Transferable for PeerData {
         };
 
         let slice: [u8; 1] = data[0..1].try_into().map_err(|err| {
-            println!("Error occurred while deserializing PeerData: {:?}", err);
+            let _ = log_into_file(
+                format!("Error occurred while deserializing PeerData: {:?}", err).as_str(),
+            );
             ParseErrors::InvalidStructure
         })?;
         let str_len = u8::from_be_bytes(slice);
         let str_len: usize = str_len.try_into().map_err(|err| {
-            println!("Error occurred while deserializing PeerData: {:?}", err);
+            let _ = log_into_file(
+                format!("Error occurred while deserializing PeerData: {:?}", err).as_str(),
+            );
             ParseErrors::InvalidStructure
         })?;
         check_offset_bounds(data, 1, str_len)?;
 
         let peer_name = String::from_utf8(data[1..=str_len].to_vec()).map_err(|err| {
-            println!("Error occurred while deserializing PeerData: {:?}", err);
+            let _ = log_into_file(
+                format!("Error occurred while deserializing PeerData: {:?}", err).as_str(),
+            );
             ParseErrors::InvalidStructure
         })?;
 
@@ -83,11 +90,13 @@ impl Transferable for ClipboardData {
                 let s_type_len = read_size(data, &mut o)?;
                 let s_type =
                     String::from_utf8(read_data(data, &mut o, s_type_len)?).map_err(|err| {
-                        println!("Could not read string data type chunk: {:?}", err);
+                        let _ = log_into_file(
+                            format!("Could not read string data type chunk: {:?}", err).as_str(),
+                        );
                         ParseErrors::InvalidStructure
                     })?;
                 let s_type = StringType::from_str(&s_type).map_err(|err| {
-                    println!("Invalid string type: {:?}", err);
+                    let _ = log_into_file(format!("Invalid string type: {:?}", err).as_str());
                     ParseErrors::InvalidStructure
                 });
 
@@ -108,7 +117,9 @@ impl Transferable for ClipboardData {
                 let filename_size = read_size(data, &mut o)?;
                 let filename =
                     String::from_utf8(read_data(data, &mut o, filename_size)?).map_err(|err| {
-                        println!("Failed to read filename string: {:?}", err);
+                        let _ = log_into_file(
+                            format!("Failed to read filename string: {:?}", err).as_str(),
+                        );
                         ParseErrors::InvalidStructure
                     })?;
                 read_header_expected(data, &mut o, "XDAT")?;

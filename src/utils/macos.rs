@@ -7,6 +7,8 @@ use objc::runtime::Object;
 use objc::sel;
 use objc::sel_impl;
 
+use super::log_into_file;
+
 #[allow(unexpected_cfgs)]
 pub fn get_error(exception: ObjectId) -> String {
     unsafe {
@@ -36,7 +38,7 @@ pub fn get_host_name() -> String {
         );
 
         if !res.error.is_null() {
-            println!("{:?}", get_error(res.error as ObjectId));
+            let _ = log_into_file(format!("{:?}", get_error(res.error as ObjectId)).as_str());
         }
         if !res.result.is_null() {
             std::ffi::CStr::from_ptr(res.result as *const i8)

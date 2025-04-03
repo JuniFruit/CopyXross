@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 mod app;
 mod clipboard;
 mod encode;
@@ -45,18 +46,19 @@ use std::time::Duration;
 use std::time::Instant;
 use utils::attempt_get_lock;
 use utils::get_pc_name;
-
+use utils::log_into_file;
 #[derive(PartialEq, Debug)]
 #[allow(dead_code)]
+
 enum SyncMessage {
     Stop,
     Discover,
     NetworkChange,
     Cmd((SocketAddr, MessageType)),
 }
-
+#[allow(unused_must_use)]
 fn main() {
-    println!("Starting...");
+    log_into_file("Starting...");
 
     let (_c_sender, _c_receiver) = channel::<SyncMessage>();
     let arc_c_sender = Arc::new(Mutex::new(_c_sender));
@@ -78,16 +80,16 @@ fn main() {
     app.run().expect("App failed to run");
 
     if let Ok(sender) = attempt_get_lock(&c_sender) {
-        println!("Terminating the program.");
+        let _ = log_into_file("Terminating the program.");
         let _ = sender.send(SyncMessage::Stop);
     };
     let res = core_thread.join();
     match res {
         Err(err) => {
-            println!("Program finished with error: {:?}", err);
+            let _ = log_into_file(format!("Program finished with error: {:?}", err).as_str());
         }
         Ok(_) => {
-            println!("Program finished successfully");
+            let _ = log_into_file(format!("Program finished successfully").as_str());
         }
     }
 }
@@ -98,7 +100,10 @@ fn core_handle(
     c_receiver: Receiver<SyncMessage>,
 ) {
     while !NetworkChangeListener::is_en0_connected() {
-        println!("WiFi network cannot be found! Make sure you are connected to wifi router.");
+        let _ = log_into_file(
+            format!("WiFi network cannot be found! Make sure you are connected to wifi router.")
+                .as_str(),
+        );
         thread::sleep(Duration::new(2, 0));
         let cmd_msg = c_receiver.try_recv();
         if cmd_msg.is_ok() {
@@ -161,7 +166,7 @@ fn core_handle(
     // bind listener
     let bind_res = bind_network();
     if bind_res.is_err() {
-        println!("{:?}", bind_res.unwrap_err());
+        let _ = log_into_file(format!("{:?}", bind_res.unwrap_err()).as_str());
         let _ = app_menu.stop();
         return;
     }
@@ -199,20 +204,20 @@ fn core_handle(
             let time_now = Instant::now();
             let elapsed = time_now.duration_since(last_nw_change_time.unwrap());
             if elapsed > nw_change_debounce {
-                println!("Network change detected, binding listeners...");
+                let _ = log_into_file("Network change detected, binding listeners...");
                 last_nw_change_time = None;
                 connection_map.clear();
                 let _ = app_menu.remove_all_dyn();
                 let bind_res = bind_network();
                 if bind_res.is_err() {
-                    println!("{:?}", bind_res.unwrap_err());
+                    let _ = log_into_file(format!("{:?}", bind_res.unwrap_err()).as_str());
                     continue;
                 }
                 let bind_res = bind_res.unwrap();
                 my_local_ip = bind_res.0;
                 socket = bind_res.1;
                 tcp_listener = bind_res.2;
-                println!("Listeners recreated.");
+                let _ = log_into_file("Listeners recreated.");
                 send_greeting_packet(&socket, BROADCAST_ADDR, my_peer_data.clone());
             }
         }
@@ -230,15 +235,16 @@ fn core_handle(
                 continue;
             }
             let parsed = parse_message(&data).unwrap_or_else(|err| {
-                println!("Parsing error: {:?}", err);
+                let _ = log_into_file(format!("Parsing error: {:?}", err).as_str());
                 MessageType::NoMessage
             });
             match parsed {
                 encode::MessageType::NoMessage => {
-                    println!("Skipping message. Empty message received");
+                    let _ =
+                        log_into_file(format!("Skipping message. Empty message received").as_str());
                 }
                 encode::MessageType::Xacn(_data) => {
-                    println!("Ack got: {:?}", _data);
+                    let _ = log_into_file(format!("Ack got: {:?}", _data).as_str());
                     let p_name = _data.peer_name.clone();
 
                     let ip = ip_addr.ip();
@@ -250,7 +256,7 @@ fn core_handle(
                     }
                 }
                 encode::MessageType::Xcon(_data) => {
-                    println!("Connection got: {:?}", _data);
+                    let _ = log_into_file(format!("Connection got: {:?}", _data).as_str());
                     let p_name = _data.peer_name.clone();
                     // creating acknowledgment msg to response to all peers
                     let ack_msg =
@@ -258,7 +264,10 @@ fn core_handle(
                     if let Ok(ack_msg) = ack_msg {
                         send_message_to_socket(&socket, ip_addr, &ack_msg);
                     } else {
-                        println!("Failed to compose ack msg: {:?}", ack_msg.unwrap_err());
+                        let _ = log_into_file(
+                            format!("Failed to compose ack msg: {:?}", ack_msg.unwrap_err())
+                                .as_str(),
+                        );
                     }
                     let ip = ip_addr.ip();
 
@@ -286,13 +295,19 @@ fn core_handle(
                         let message = compose_message(&msg_type, PROTOCOL_VER);
                         if let Ok(data) = message {
                             if let Err(err) = send_message_to_peer(&ip_addr, &data) {
-                                println!("Error sending TCP message: {:?}", err);
+                                let _ = log_into_file(
+                                    format!("Error sending TCP message: {:?}", err).as_str(),
+                                );
                             }
                         } else {
-                            println!("ENCODE ERR: {:?}", message.unwrap_err());
+                            let _ = log_into_file(
+                                format!("ENCODE ERR: {:?}", message.unwrap_err()).as_str(),
+                            );
                         }
                     } else {
-                        println!("CLIPBOARD ERR: {:?}", cp_buffer_res.unwrap_err());
+                        let _ = log_into_file(
+                            format!("CLIPBOARD ERR: {:?}", cp_buffer_res.unwrap_err()).as_str(),
+                        );
                     }
                 }
                 _ => {}
@@ -302,13 +317,13 @@ fn core_handle(
         if tcp_res.is_ok() {
             let _ = tcp_res.unwrap();
             let parsed = parse_message(&tcp_buff).unwrap_or_else(|err| {
-                println!("Parsing error: {:?}", err);
+                let _ = log_into_file(format!("Parsing error: {:?}", err).as_str());
                 MessageType::NoMessage
             });
 
             if let MessageType::Xpst(cp_data) = parsed {
                 if let Err(err) = cp.write(cp_data) {
-                    println!("CLIPBOARD ERR: {:?}", err);
+                    let _ = log_into_file(format!("CLIPBOARD ERR: {:?}", err).as_str());
                 }
             }
             tcp_buff.clear();
@@ -331,7 +346,10 @@ fn core_handle(
                         if let Ok(data) = cpy_cmd {
                             send_message_to_socket(&socket, target, &data);
                         } else {
-                            println!("Failed to compose message: {:?}", cpy_cmd.unwrap_err());
+                            let _ = log_into_file(
+                                format!("Failed to compose message: {:?}", cpy_cmd.unwrap_err())
+                                    .as_str(),
+                            );
                         }
                     }
                 }
@@ -355,10 +373,10 @@ fn core_handle(
 }
 
 fn bind_network() -> Result<(IpAddr, UdpSocket, TcpListener), NetworkError> {
-    println!("Binding listeners...");
+    let _ = log_into_file("Binding listeners...");
     let my_local_ip = local_ip()
         .map_err(|err| NetworkError::Unexpected(format!("Could not get ip: {:?}", err)))?;
-    println!("This is my local IP address: {:?}", my_local_ip);
+    let _ = log_into_file(format!("This is my local IP address: {:?}", my_local_ip).as_str());
     // bind listener
     let (socket, tcp) = init_listeners(my_local_ip)?;
     Ok((my_local_ip, socket, tcp))

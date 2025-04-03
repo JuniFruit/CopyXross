@@ -1,9 +1,8 @@
-use crate::clipboard::ClipboardData;
+use crate::{clipboard::ClipboardData, utils::log_into_file};
 use std::str::FromStr;
 
 const HEADER_SIZE: usize = 4;
 const LENGTH_SIZE: usize = 4;
-
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeerData {
     pub peer_name: String,
@@ -97,7 +96,8 @@ pub fn read_header(data: &[u8], o: &mut ReaderOffset) -> Result<String, ParseErr
     check_offset_bounds(data, o.offset, HEADER_SIZE)?;
     let header: String = String::from_utf8(data[o.offset..o.offset + HEADER_SIZE].to_vec())
         .map_err(|err| {
-            println!("Error occurred while parsing header: {:?}", err);
+            let _ =
+                log_into_file(format!("Error occurred while parsing header: {:?}", err).as_str());
             ParseErrors::InvalidStructure
         })?;
     o.increase_by(HEADER_SIZE);
@@ -124,7 +124,7 @@ pub fn read_size(data: &[u8], o: &mut ReaderOffset) -> Result<usize, ParseErrors
     let slice: [u8; 4] = data[o.offset..o.offset + LENGTH_SIZE]
         .try_into()
         .map_err(|err| {
-            println!("Error occurred while parsing len: {:?}", err);
+            let _ = log_into_file(format!("Error occurred while parsing len: {:?}", err).as_str());
             ParseErrors::InvalidStructure
         })?;
     let size: u32 = u32::from_be_bytes(slice);
