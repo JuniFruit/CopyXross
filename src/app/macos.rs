@@ -42,7 +42,7 @@ impl TaskMenuBar {
         unsafe {
             autoreleasepool(|| {
                 if sender.is_null() {
-                    println!("Sender is null");
+                    debug_println!("Sender is null");
                     return;
                 }
                 let id_ns_str: ObjectId = msg_send![sender, representedObject];
@@ -123,7 +123,7 @@ impl TaskMenuBar {
             );
 
             if !res.error.is_null() {
-                println!("{:?}", get_error(res.error as ObjectId));
+                debug_println!("{:?}", get_error(res.error as ObjectId));
             }
         }
     }
@@ -132,14 +132,16 @@ impl TaskMenuBar {
         unsafe {
             let res = catch_and_log_exception(
                 |args| {
-                    let menu = args as ObjectId;
-                    let _: () = msg_send![menu, removeAllItems];
-                    ptr::null_mut()
+                    autoreleasepool(|| {
+                        let menu = args as ObjectId;
+                        let _: () = msg_send![menu, removeAllItems];
+                        ptr::null_mut()
+                    })
                 },
                 menu as *mut _,
             );
             if !res.error.is_null() {
-                println!("{:?}", get_error(res.error as ObjectId));
+                debug_println!("{:?}", get_error(res.error as ObjectId));
             }
         }
     }
@@ -398,6 +400,9 @@ impl TaskMenuOperations for TaskMenuBar {
                 Ok(())
             }
         }
+    }
+    fn set_autorun_button(&self) -> Result<(), TaskMenuError> {
+        Ok(())
     }
 }
 

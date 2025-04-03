@@ -47,9 +47,9 @@ use std::time::Instant;
 use utils::attempt_get_lock;
 use utils::get_pc_name;
 use utils::log_into_file;
+
 #[derive(PartialEq, Debug)]
 #[allow(dead_code)]
-
 enum SyncMessage {
     Stop,
     Discover,
@@ -89,7 +89,7 @@ fn main() {
             let _ = log_into_file(format!("Program finished with error: {:?}", err).as_str());
         }
         Ok(_) => {
-            let _ = log_into_file(format!("Program finished successfully").as_str());
+            let _ = log_into_file("Program finished successfully");
         }
     }
 }
@@ -101,19 +101,15 @@ fn core_handle(
 ) {
     while !NetworkChangeListener::is_en0_connected() {
         let _ = log_into_file(
-            format!("WiFi network cannot be found! Make sure you are connected to wifi router.")
-                .as_str(),
+            "WiFi network cannot be found! Make sure you are connected to wifi router.",
         );
         thread::sleep(Duration::new(2, 0));
         let cmd_msg = c_receiver.try_recv();
         if cmd_msg.is_ok() {
             let msg = cmd_msg.unwrap();
-            match msg {
-                SyncMessage::Stop => {
-                    return;
-                }
-                _ => {}
-            };
+            if msg == SyncMessage::Stop {
+                return;
+            }
         }
     }
 
@@ -240,8 +236,7 @@ fn core_handle(
             });
             match parsed {
                 encode::MessageType::NoMessage => {
-                    let _ =
-                        log_into_file(format!("Skipping message. Empty message received").as_str());
+                    let _ = log_into_file("Skipping message. Empty message received");
                 }
                 encode::MessageType::Xacn(_data) => {
                     let _ = log_into_file(format!("Ack got: {:?}", _data).as_str());

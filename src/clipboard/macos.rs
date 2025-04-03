@@ -97,6 +97,7 @@ impl MacosClipboard {
             }
             let utf8: *const i8 = msg_send![ns_url, UTF8String];
             let c_str = CStr::from_ptr(utf8).to_string_lossy();
+            let c_str = c_str.replace(" ", "\\ ");
             debug_println!("File: {}", c_str);
             if c_str.ends_with("/") {
                 return Err(ClipboardError::Read(String::from("Cannot copy folders")));
