@@ -97,12 +97,13 @@ impl MacosClipboard {
             }
             let utf8: *const i8 = msg_send![ns_url, UTF8String];
             let c_str = CStr::from_ptr(utf8).to_string_lossy();
-            let c_str = c_str.replace(" ", "\\ ");
+            let c_str = c_str.replace("%20", " ");
             debug_println!("File: {}", c_str);
             if c_str.ends_with("/") {
                 return Err(ClipboardError::Read(String::from("Cannot copy folders")));
             }
             // slice file:// part
+            println!("{:?}", &c_str[7..]);
             let file_buf = open_file(&c_str[7..]).map_err(|err| {
                 ClipboardError::Read(format!("Failed to read file from buffer: {:?}", err))
             })?;
