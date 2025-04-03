@@ -127,25 +127,26 @@ pub fn extract_plain_str_from_html(html: &str) -> String {
     result
 }
 
-const LOG_FILE: &str = "app.log";
+const LOG_FILE: &str = "copyxross.log";
 const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50MB limit
 
 pub fn log_into_file(str: &str) -> Result<()> {
     debug_println!("{:?}", str);
     // Check file size and override if needed
-    if let Ok(meta) = metadata(LOG_FILE) {
+    let mut path = dirs_next::data_local_dir().unwrap_or(PathBuf::from(""));
+    path.push(LOG_FILE);
+    println!("{:?}", path);
+
+    if let Ok(meta) = metadata(&path) {
         if meta.len() > MAX_FILE_SIZE {
-            File::create(LOG_FILE)?; // Override the file
+            File::create(&path)?; // Override the file
         }
     }
 
     // Append message to the log file
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(LOG_FILE)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
 
-    file.write(format!("[{:?}]:{:?}\n", Local::now(), str).as_bytes())?;
+    let _ = file.write(format!("[{:?}]:{:?}\n", Local::now(), str).as_bytes())?;
     Ok(())
 }
 
