@@ -1,6 +1,5 @@
 #[cfg(target_os = "macos")]
 pub mod macos;
-use chrono::{DateTime, Local};
 #[cfg(target_os = "macos")]
 pub use macos::get_host_name as get_pc_name;
 #[cfg(target_os = "windows")]
@@ -8,12 +7,13 @@ pub mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::get_host_name as get_pc_name;
 
-use std::fs::{metadata, write, File, OpenOptions};
+use chrono::Local;
+use std::fs::{metadata, File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::Duration;
 use std::{env, fs};
 
 const KX: u32 = 123456789;
