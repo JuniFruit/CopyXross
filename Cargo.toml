@@ -29,8 +29,9 @@ chrono = "0.4.40"
 
 [package.metadata.bundle]
 
-short_description = 'Application that allows Copy/Paste across machines within local WiFi network"long_description = "Copy/Paste across local machines with ease.'
-name = 'copyxross'
+long_description = "Application that allows Copy/Paste across machines within local WiFi network"
+short_description = "Copy/Paste across local machines with ease."
+name = "copyxross"
 identifier = "com.copyxross.copyxrossapp"
 icon = ["assets/app.png"]
 version = "1.0.0"
