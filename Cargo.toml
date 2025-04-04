@@ -32,9 +32,8 @@ chrono = "0.4.40"
 short_description = 'Application that allows Copy/Paste across machines within local WiFi network"long_description = "Copy/Paste across local machines with ease.'
 name = 'copyxross'
 identifier = "com.copyxross.copyxrossapp"
-icon = ["tray_32.ico"]
+icon = ["assets/app.png"]
 version = "1.0.0"
 resources = ["assets"]
 copyright = "This program is licensed either under the terms of the the MIT License."
 category = "Developer Tool"
-

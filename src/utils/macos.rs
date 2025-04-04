@@ -1,6 +1,10 @@
+use std::env;
 use std::ffi::CStr;
+use std::path::Path;
+use std::path::PathBuf;
 use std::ptr;
 
+use dirs_next::home_dir;
 use objc::class;
 use objc::msg_send;
 use objc::runtime::Object;
@@ -61,4 +65,20 @@ extern "C" {
 pub struct MacOsOperationResult {
     pub result: *mut std::ffi::c_void,
     pub error: *mut std::ffi::c_void,
+}
+pub fn get_log_path() -> PathBuf {
+    let mut home = home_dir().unwrap_or(PathBuf::from(""));
+
+    home.push("Library");
+    home.push("Logs");
+    home
+}
+pub fn get_asset(filename: &str) -> PathBuf {
+    let exe_path = env::current_exe().unwrap_or(PathBuf::from(""));
+    let bundle_path = exe_path
+        .parent()
+        .expect("Failed to get asset path")
+        .parent()
+        .expect("Failed to get asset path");
+    bundle_path.join("Resources").join("assets").join(filename)
 }

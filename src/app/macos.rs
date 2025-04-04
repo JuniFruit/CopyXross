@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::path::PathBuf;
 use std::ptr;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -292,7 +293,7 @@ impl TaskMenuOperations for TaskMenuBar {
 
                     let status_item: ObjectId =
                         msg_send![system_status_bar, statusItemWithLength: -1.0];
-                    let path = get_asset_path("tray_16.ico").unwrap();
+                    let path = get_asset_path("24.png").unwrap_or(PathBuf::from(""));
                     let image_path = TaskMenuBar::string_to_nsstring(path.to_str().unwrap());
                     let image: ObjectId = msg_send![class!(NSImage), alloc];
                     let image: ObjectId = msg_send![image, initWithContentsOfFile: image_path];

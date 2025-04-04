@@ -2,6 +2,9 @@
 pub mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::get_host_name as get_pc_name;
+#[cfg(target_os = "macos")]
+use macos::{get_asset, get_log_path};
+
 #[cfg(target_os = "windows")]
 pub mod windows;
 #[cfg(target_os = "windows")]
@@ -100,10 +103,16 @@ pub fn write_progress(curr: usize, total: usize) {
 }
 
 pub fn get_asset_path(file: &str) -> Result<PathBuf> {
-    let mut curr_dir = env::current_dir()?;
-    curr_dir.push("assets");
-    curr_dir.push(file);
-    Ok(curr_dir)
+    if cfg!(debug_assertions) {
+        let mut curr_dir = env::current_dir()?;
+
+        curr_dir.push("assets");
+        curr_dir.push(file);
+        Ok(curr_dir)
+    } else {
+        log_into_file(format!("File asset {:?}", get_asset(file)).as_str());
+        Ok(get_asset(file))
+    }
 }
 
 /// Return plain string from html. If html is invalid returns empty string
@@ -133,7 +142,7 @@ const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50MB limit
 pub fn log_into_file(str: &str) -> Result<()> {
     debug_println!("{:?}", str);
     // Check file size and override if needed
-    let mut path = dirs_next::data_local_dir().unwrap_or(PathBuf::from(""));
+    let mut path = get_log_path();
     path.push(LOG_FILE);
 
     if let Ok(meta) = metadata(&path) {

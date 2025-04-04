@@ -106,3 +106,9 @@ pub fn get_host_name() -> String {
         str.to_string()
     }
 }
+
+pub fn get_log_path() -> PathBuf {
+    let mut home = data_dir().unwrap_or(PathBuf::from(""));
+
+    home
+}
