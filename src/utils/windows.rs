@@ -1,6 +1,8 @@
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
+use std::path::PathBuf;
 
+use dirs_next::data_dir;
 use winapi::shared::winerror::*;
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::winbase::GetComputerNameW;
@@ -108,7 +110,14 @@ pub fn get_host_name() -> String {
 }
 
 pub fn get_log_path() -> PathBuf {
-    let mut home = data_dir().unwrap_or(PathBuf::from(""));
-
+    let home = data_dir().unwrap_or(PathBuf::from(""));
     home
+}
+
+pub fn get_asset(file: &str) -> PathBuf {
+    let mut curr_dir = std::env::current_dir().unwrap_or(PathBuf::from(""));
+
+    curr_dir.push("assets");
+    curr_dir.push(file);
+    curr_dir
 }

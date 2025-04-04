@@ -9,6 +9,8 @@ use macos::{get_asset, get_log_path};
 pub mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::get_host_name as get_pc_name;
+#[cfg(target_os = "windows")]
+use windows::{get_asset, get_log_path};
 
 use chrono::Local;
 use std::fs::{metadata, File, OpenOptions};
@@ -105,12 +107,10 @@ pub fn write_progress(curr: usize, total: usize) {
 pub fn get_asset_path(file: &str) -> Result<PathBuf> {
     if cfg!(debug_assertions) {
         let mut curr_dir = env::current_dir()?;
-
         curr_dir.push("assets");
         curr_dir.push(file);
         Ok(curr_dir)
     } else {
-        log_into_file(format!("File asset {:?}", get_asset(file)).as_str());
         Ok(get_asset(file))
     }
 }

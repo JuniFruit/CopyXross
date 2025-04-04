@@ -240,7 +240,7 @@ impl TaskMenuBar {
     }
     fn add_tray_btn(window_ptr: HWND) -> Result<NOTIFYICONDATAW, TaskMenuError> {
         unsafe {
-            let icon_path = get_asset_path("24.png").map_err(|err| {
+            let icon_path = get_asset_path("24.ico").map_err(|err| {
                 TaskMenuError::Init(format!("Failed to init taskmenu: {:?}", err))
             })?;
             let c_icon_path = OsStr::new(&icon_path)
