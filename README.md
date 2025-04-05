@@ -1,6 +1,6 @@
 # CopyXross App
 
-A small and simple tool Copy/Paste string or files across machines in your local network. Available for both MacOs and Windows. 
+A small and simple tool Copy/Paste string or files across machines in your local network. Available for both MacOs and Windows.
 
 ### Usage
 
@@ -16,7 +16,7 @@ MSI installer is not yet implemented. So only folder download is available.
 
 ### Installation
 
-MacOs bundle is available here: [Google Drive](https://drive.google.com/file/d/14NCVNY7DWdmKWTky7W32Ju3KdOHAx2tR/view?usp=sharing). 
+MacOs bundle is available here: [Google Drive](https://drive.google.com/file/d/14egqjIrCcVgkXdAktNPVt2_I8BZLm8Rq/view?usp=sharing).
 Windows build is here: [Google Drive](https://drive.google.com/file/d/1jaRISSCX-O7P3YFBQ3r-U8kob8ieGtd0/view?usp=sharing).
 
 To build from source:
@@ -25,21 +25,26 @@ To build from source:
 git clone https://github.com/JuniFruit/CopyXross.git
 cd CopyXross
 ```
+
 For Windows, it's a simple build cmd:
+
 ```
 cargo build --release
 
 ```
+
 Go to target/release and there you will find executable
 
 For Mac we use bundler:
+
 ```
 cargo install cargo-bundle
 ```
+
 then
+
 ```
 sudo cargo bundle --release
 ```
+
 You will find your bundle in target/release/bundle/osx
-
-
