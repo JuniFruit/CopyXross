@@ -29,8 +29,8 @@ pub enum NetworkError {
 pub const PROTOCOL_VER: u32 = 1;
 pub const PORT: u16 = 53300;
 
-pub const MULTICAST_IP: Ipv4Addr = Ipv4Addr::new(255, 255, 255, 255);
-pub const BROADCAST_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(MULTICAST_IP), 0);
+pub const BROADCAST_IP: Ipv4Addr = Ipv4Addr::new(255, 255, 255, 255);
+pub const BROADCAST_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(BROADCAST_IP), PORT);
 
 pub trait NetworkListener: Sized {
     fn init(cb: Option<Box<dyn Fn()>>) -> Result<Self, NetworkError>;

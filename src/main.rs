@@ -376,6 +376,6 @@ fn bind_network() -> Result<(IpAddr, UdpSocket, TcpListener), NetworkError> {
         .map_err(|err| NetworkError::Unexpected(format!("Could not get ip: {:?}", err)))?;
     let _ = log_into_file(format!("This is my local IP address: {:?}", my_local_ip).as_str());
     // bind listener
-    let (socket, tcp) = init_listeners(my_local_ip)?;
+    let (socket, tcp) = init_listeners("0.0.0.0".parse().unwrap())?;
     Ok((my_local_ip, socket, tcp))
 }
