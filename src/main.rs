@@ -245,7 +245,8 @@ fn core_handle(
                     let ip = ip_addr.ip();
                     if let Entry::Vacant(_) = connection_map.entry(ip) {
                         connection_map.insert(ip, _data);
-                        let mut btn_data = ButtonData::from_str_dyn(&p_name);
+                        let mut btn_data =
+                            ButtonData::from_str_dyn(&format!("cp from {:?}", p_name));
                         btn_data.attrs_str = Some(ip_addr.to_string());
                         let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
                     }
@@ -268,7 +269,8 @@ fn core_handle(
 
                     if let Entry::Vacant(_) = connection_map.entry(ip) {
                         connection_map.insert(ip, _data);
-                        let mut btn_data = ButtonData::from_str_dyn(&p_name);
+                        let mut btn_data =
+                            ButtonData::from_str_dyn(&format!("cp from {:?}", p_name));
                         btn_data.attrs_str = Some(ip_addr.to_string());
                         let _ = app_menu.add_menu_item(btn_data, copy_event_handler.clone());
                     }
@@ -276,7 +278,8 @@ fn core_handle(
                 encode::MessageType::Xdis => {
                     if let Some(data) = connection_map.remove(&ip_addr.ip()) {
                         let p_name = data.peer_name;
-                        let mut btn_data = ButtonData::from_str_dyn(&p_name);
+                        let mut btn_data =
+                            ButtonData::from_str_dyn(&format!("cp from {:?}", p_name));
                         btn_data.attrs_str = Some(ip_addr.to_string());
                         let _ = app_menu.remove_menu_item(btn_data);
                     }
