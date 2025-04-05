@@ -1,12 +1,12 @@
 # CopyXross App
 
-Small and simple tool Copy/Paste string or files across machines in your local network. Available for both MacOs and Windows. 
+A small and simple tool Copy/Paste string or files across machines in your local network. Available for both MacOs and Windows. 
 
 ### Usage
 
 Simply run the app and start Copy/Pasting stuff around. Use Ctrl + C on one machine and use app UI menu to paste on another machine.
 
-### Suff to improve upon
+### Stuff to improve upon
 
 Currently only single files are allowed to copy. If you need to copy folder, you have to compress it before. Copying files is no different from regular text. Just hit Ctrl + C on src machine and paste it on destination one.
 
