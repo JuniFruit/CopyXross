@@ -53,34 +53,48 @@ fn link_objc(out_dir: &str) {
         }
         "#;
 
-    // Define output directory
     let objc_file = Path::new(&out_dir).join("objc_exception_wrapper.m");
-    let lib_file = Path::new(&out_dir).join("libobjc_exception_wrapper.dylib");
+    let object_file = Path::new(&out_dir).join("objc_exception_wrapper.o");
+    let static_lib = Path::new(&out_dir).join("libobjc_exception_wrapper.a");
 
-    // Write Objective-C code to file
+    // Write the Objective-C file
     fs::write(&objc_file, objc_code).expect("Failed to write Objective-C file");
 
-    // Compile Objective-C file into a shared library
+    // Compile .m file into object file
     let status = Command::new("clang")
         .args([
             "-framework",
             "Foundation",
             "-fPIC",
-            "-shared",
+            "-c",
             objc_file.to_str().unwrap(),
             "-o",
-            lib_file.to_str().unwrap(),
+            object_file.to_str().unwrap(),
         ])
         .status()
-        .expect("Failed to compile Objective-C code");
+        .expect("Failed to compile Objective-C source");
 
     if !status.success() {
         panic!("Objective-C compilation failed");
     }
 
-    // Tell Rust to link the generated library
+    // Archive the object file into a static library
+    let status = Command::new("ar")
+        .args([
+            "crus",
+            static_lib.to_str().unwrap(),
+            object_file.to_str().unwrap(),
+        ])
+        .status()
+        .expect("Failed to create static library");
+
+    if !status.success() {
+        panic!("Failed to archive object file into static lib");
+    }
+
+    // Link statically
     println!("cargo:rustc-link-search=native={}", out_dir);
-    println!("cargo:rustc-link-lib=dylib=objc_exception_wrapper");
+    println!("cargo:rustc-link-lib=static=objc_exception_wrapper");
 }
 
 fn main() {

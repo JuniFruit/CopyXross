@@ -1,6 +1,5 @@
 use std::env;
 use std::ffi::CStr;
-use std::path::Path;
 use std::path::PathBuf;
 use std::ptr;
 
@@ -55,6 +54,7 @@ pub fn get_host_name() -> String {
 }
 
 #[allow(improper_ctypes)]
+#[link(name = "objc_exception_wrapper", kind = "static")]
 extern "C" {
     pub fn catch_and_log_exception(
         block: fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void,

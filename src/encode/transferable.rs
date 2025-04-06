@@ -50,12 +50,7 @@ impl Transferable for PeerData {
             ParseErrors::InvalidStructure
         })?;
         let str_len = u8::from_be_bytes(slice);
-        let str_len: usize = str_len.try_into().map_err(|err| {
-            let _ = log_into_file(
-                format!("Error occurred while deserializing PeerData: {:?}", err).as_str(),
-            );
-            ParseErrors::InvalidStructure
-        })?;
+        let str_len: usize = str_len as usize;
         check_offset_bounds(data, 1, str_len)?;
 
         let peer_name = String::from_utf8(data[1..=str_len].to_vec()).map_err(|err| {
