@@ -63,40 +63,52 @@ pub fn socket(listen_on: SocketAddr) -> std::io::Result<UdpSocket> {
     }
 }
 
-pub fn listen_to_socket(socket: &UdpSocket, buf: &mut [u8; 1024]) -> Option<(SocketAddr, Vec<u8>)> {
-    let result = socket.recv_from(buf);
-    match result {
-        Ok((_amt, src)) => {
-            debug_println!(
-                "Received data from {}. Size: {}",
-                src,
-                format_bytes_size(_amt)
-            );
-            if _amt < 1 {
-                return None;
+pub fn listen_to_socket(
+    socket: Option<&UdpSocket>,
+    buf: &mut [u8; 1024],
+) -> Option<(SocketAddr, Vec<u8>)> {
+    if let Some(socket) = socket {
+        let result = socket.recv_from(buf);
+        match result {
+            Ok((_amt, src)) => {
+                debug_println!(
+                    "Received data from {}. Size: {}",
+                    src,
+                    format_bytes_size(_amt)
+                );
+                if _amt < 1 {
+                    return None;
+                }
+                Some((src, Vec::<u8>::from(&buf[.._amt])))
             }
-            Some((src, Vec::<u8>::from(&buf[.._amt])))
-        }
-        Err(err) => {
-            if err.kind() != ErrorKind::WouldBlock && err.kind() != ErrorKind::TimedOut {
-                debug_println!("Read error: {:?}", err);
+            Err(err) => {
+                if err.kind() != ErrorKind::WouldBlock && err.kind() != ErrorKind::TimedOut {
+                    debug_println!("Read error: {:?}", err);
+                }
+                None
             }
-            None
         }
+    } else {
+        debug_println!("UDP Socket is not bound");
+        None
     }
 }
 
-pub fn send_message_to_socket<A>(socket: &UdpSocket, target: A, data: &[u8])
+pub fn send_message_to_socket<A>(socket: Option<&UdpSocket>, target: A, data: &[u8])
 where
     A: std::net::ToSocketAddrs,
 {
-    match socket.send_to(data, target) {
-        Ok(amt) => {
-            debug_println!("Sent packet size {} bytes", format_bytes_size(amt));
+    if let Some(socket) = socket {
+        match socket.send_to(data, target) {
+            Ok(amt) => {
+                debug_println!("Sent packet size {} bytes", format_bytes_size(amt));
+            }
+            Err(e) => {
+                debug_println!("Error sending message: {:?}", e)
+            }
         }
-        Err(e) => {
-            debug_println!("Error sending message: {:?}", e)
-        }
+    } else {
+        let _ = log_into_file("Failed to send packet. UDP Socket is not bound!");
     }
 }
 
@@ -138,52 +150,59 @@ pub fn init_listeners(my_ip: IpAddr) -> Result<(UdpSocket, TcpListener), Network
     Ok((s, tcp))
 }
 
-pub fn listen_to_tcp(socket: &TcpListener, buff: &mut Vec<u8>) -> Result<usize, NetworkError> {
-    let (mut data, _ip) = socket.accept().map_err(|err| {
-        if err.kind() == ErrorKind::TimedOut || err.kind() == ErrorKind::WouldBlock {
-            return NetworkError::Blocked;
-        }
-        NetworkError::Read(format!("{:?}", err))
-    })?;
-    let mut buffer = vec![0; 1024];
-    let mut read: usize = 0;
-    loop {
-        write_progress(read, 0);
-        let res = data.read(&mut buffer);
-
-        if res.is_ok() {
-            let curr_read = res.unwrap();
-            if curr_read == 0 {
-                break;
+pub fn listen_to_tcp(
+    socket: Option<&TcpListener>,
+    buff: &mut Vec<u8>,
+) -> Result<usize, NetworkError> {
+    if let Some(socket) = socket {
+        let (mut data, _ip) = socket.accept().map_err(|err| {
+            if err.kind() == ErrorKind::TimedOut || err.kind() == ErrorKind::WouldBlock {
+                return NetworkError::Blocked;
             }
-            read += curr_read;
+            NetworkError::Read(format!("{:?}", err))
+        })?;
+        let mut buffer = vec![0; 1024];
+        let mut read: usize = 0;
+        loop {
+            write_progress(read, 0);
+            let res = data.read(&mut buffer);
 
-            buff.extend_from_slice(&buffer[..curr_read]);
-        } else {
-            let err = res.unwrap_err();
-            if let ErrorKind::WouldBlock = err.kind() {
-                continue;
+            if res.is_ok() {
+                let curr_read = res.unwrap();
+                if curr_read == 0 {
+                    break;
+                }
+                read += curr_read;
+
+                buff.extend_from_slice(&buffer[..curr_read]);
             } else {
-                break;
+                let err = res.unwrap_err();
+                if let ErrorKind::WouldBlock = err.kind() {
+                    continue;
+                } else {
+                    break;
+                }
             }
         }
-    }
 
-    debug_println!(
-        "Received data via TCP from {:?}. Size: {}",
-        _ip,
-        format_bytes_size(read)
-    );
-    Ok(read)
+        debug_println!(
+            "Received data via TCP from {:?}. Size: {}",
+            _ip,
+            format_bytes_size(read)
+        );
+        Ok(read)
+    } else {
+        Err(NetworkError::Read("Tcp socket is not bound!".to_string()))
+    }
 }
-pub fn send_bye_packet(socket: &UdpSocket, target: SocketAddr) {
-    debug_println!("Sending BYE packet...");
+pub fn send_bye_packet(socket: Option<&UdpSocket>, target: SocketAddr) {
+    let _ = log_into_file("Sending BYE message...");
     let disconnect_msg = compose_message(&MessageType::Xdis, PROTOCOL_VER).unwrap();
     send_message_to_socket(socket, target, &disconnect_msg);
 }
 
-pub fn send_greeting_packet(socket: &UdpSocket, target: SocketAddr, p_data: PeerData) {
-    debug_println!("Sending greeting message...");
+pub fn send_greeting_packet(socket: Option<&UdpSocket>, target: SocketAddr, p_data: PeerData) {
+    let _ = log_into_file("Sending greeting message...");
     let greeting_message =
         compose_message(&MessageType::Xcon(p_data), PROTOCOL_VER).unwrap_or_default();
     send_message_to_socket(socket, target, &greeting_message);

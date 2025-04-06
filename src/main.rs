@@ -167,11 +167,14 @@ fn core_handle(
         return;
     }
 
-    let (mut my_local_ip, mut socket, mut tcp_listener) = bind_res.unwrap();
-    {
-        // creating greeting message to send to all peers
-        send_greeting_packet(&socket, BROADCAST_ADDR, my_peer_data.clone());
-    }
+    let bound_listeners = bind_res.unwrap();
+    let mut my_local_ip = bound_listeners.0;
+    let mut socket: Option<UdpSocket> = Some(bound_listeners.1);
+    let mut tcp_listener: Option<TcpListener> = Some(bound_listeners.2);
+
+    // creating greeting message to send to all peers
+
+    send_greeting_packet(socket.as_ref(), BROADCAST_ADDR, my_peer_data.clone());
 
     let nw_change_debounce = Duration::new(2, 0);
     let rediscover_timeframe = Duration::new(60 * 5, 0); // rediscover every 5 min
@@ -188,19 +191,21 @@ fn core_handle(
             udp_buff = [0; 1024];
         }
 
-        if Instant::now().duration_since(last_rediscover) > rediscover_timeframe {
-            let _ = app_menu.remove_all_dyn();
-            connection_map.clear();
-            send_greeting_packet(&socket, BROADCAST_ADDR, my_peer_data.clone());
-            last_rediscover = Instant::now();
-        }
-
         // rebind listeners when debounce time elapses for nw change
         if last_nw_change_time.is_some() {
             let time_now = Instant::now();
             let elapsed = time_now.duration_since(last_nw_change_time.unwrap());
             if elapsed > nw_change_debounce {
                 let _ = log_into_file("Network change detected, binding listeners...");
+                if tcp_listener.is_some() {
+                    drop(tcp_listener.unwrap());
+                    tcp_listener = None;
+                }
+                if socket.is_some() {
+                    drop(socket.unwrap());
+                    socket = None;
+                }
+
                 last_nw_change_time = None;
                 connection_map.clear();
                 let _ = app_menu.remove_all_dyn();
@@ -211,19 +216,25 @@ fn core_handle(
                 }
                 let bind_res = bind_res.unwrap();
                 my_local_ip = bind_res.0;
-                socket = bind_res.1;
-                tcp_listener = bind_res.2;
+                socket = Some(bind_res.1);
+                tcp_listener = Some(bind_res.2);
                 let _ = log_into_file("Listeners recreated.");
-                send_greeting_packet(&socket, BROADCAST_ADDR, my_peer_data.clone());
+                send_greeting_packet(socket.as_ref(), BROADCAST_ADDR, my_peer_data.clone());
             }
+        }
+        if Instant::now().duration_since(last_rediscover) > rediscover_timeframe {
+            let _ = app_menu.remove_all_dyn();
+            connection_map.clear();
+            send_greeting_packet(socket.as_ref(), BROADCAST_ADDR, my_peer_data.clone());
+            last_rediscover = Instant::now();
         }
 
         // receive SyncMessages
         let client_res = c_receiver.try_recv();
         // Listen to UDP datagrams
-        let res = listen_to_socket(&socket, &mut udp_buff);
+        let res = listen_to_socket(socket.as_ref(), &mut udp_buff);
         // Listen to TCP packets
-        let tcp_res = listen_to_tcp(&tcp_listener, &mut tcp_buff);
+        let tcp_res = listen_to_tcp(tcp_listener.as_ref(), &mut tcp_buff);
         // Handle message from UDP
         if res.is_some() {
             let (ip_addr, data) = res.unwrap();
@@ -258,7 +269,7 @@ fn core_handle(
                     let ack_msg =
                         compose_message(&MessageType::Xacn(my_peer_data.clone()), PROTOCOL_VER);
                     if let Ok(ack_msg) = ack_msg {
-                        send_message_to_socket(&socket, ip_addr, &ack_msg);
+                        send_message_to_socket(socket.as_ref(), ip_addr, &ack_msg);
                     } else {
                         let _ = log_into_file(
                             format!("Failed to compose ack msg: {:?}", ack_msg.unwrap_err())
@@ -329,7 +340,7 @@ fn core_handle(
         } else {
             let err = tcp_res.unwrap_err();
             if err != NetworkError::Blocked {
-                debug_println!("Read error: {:?}", err);
+                let _ = log_into_file(format!("Tcp read err: {:?}", err).as_str());
             }
         }
 
@@ -342,7 +353,7 @@ fn core_handle(
                     if let MessageType::Xcpy = msg_cmd {
                         let cpy_cmd = compose_message(&MessageType::Xcpy, PROTOCOL_VER);
                         if let Ok(data) = cpy_cmd {
-                            send_message_to_socket(&socket, target, &data);
+                            send_message_to_socket(socket.as_ref(), target, &data);
                         } else {
                             let _ = log_into_file(
                                 format!("Failed to compose message: {:?}", cpy_cmd.unwrap_err())
@@ -357,7 +368,7 @@ fn core_handle(
                 SyncMessage::Discover => {
                     let _ = app_menu.remove_all_dyn();
                     connection_map.clear();
-                    send_greeting_packet(&socket, BROADCAST_ADDR, my_peer_data.clone());
+                    send_greeting_packet(socket.as_ref(), BROADCAST_ADDR, my_peer_data.clone());
                     last_rediscover = Instant::now();
                 }
                 SyncMessage::NetworkChange => {
@@ -367,7 +378,7 @@ fn core_handle(
         }
     }
     let _ = app_menu.remove_menu_item(ButtonData::from_str_static("Discover"));
-    send_bye_packet(&socket, BROADCAST_ADDR);
+    send_bye_packet(socket.as_ref(), BROADCAST_ADDR);
 }
 
 fn bind_network() -> Result<(IpAddr, UdpSocket, TcpListener), NetworkError> {
