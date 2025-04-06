@@ -340,7 +340,7 @@ fn core_handle(
         } else {
             let err = tcp_res.unwrap_err();
             if err != NetworkError::Blocked {
-                let _ = log_into_file(format!("Tcp read err: {:?}", err).as_str());
+                debug_println!("Tcp read err: {:?}", err);
             }
         }
 
