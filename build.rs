@@ -99,7 +99,8 @@ fn link_objc(out_dir: &str) {
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
-    let dest_assets = Path::new(&out_dir).join("assets");
+    let profile_out = env::var("PROFILE").unwrap();
+    let dest_assets = Path::new("target").join(&profile_out).join("assets");
     copy_dir_all("assets", dest_assets).unwrap();
 
     #[cfg(target_os = "macos")]
