@@ -13,6 +13,7 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> 
     }
     Ok(())
 }
+#[cfg(target_os = "windows")]
 fn build_meta() {
     let mut res = winres::WindowsResource::new();
     res.set_icon("./assets/24.ico");
