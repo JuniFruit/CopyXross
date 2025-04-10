@@ -13,6 +13,12 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> 
     }
     Ok(())
 }
+fn build_meta() {
+    let mut res = winres::WindowsResource::new();
+    res.set_icon("./assets/24.ico");
+    res.compile().unwrap();
+}
+
 #[cfg(target_os = "macos")]
 fn link_objc(out_dir: &str) {
     use std::process::Command;
@@ -103,6 +109,10 @@ fn main() {
     let dest_assets = Path::new("target").join(&profile_out).join("assets");
     copy_dir_all("assets", dest_assets).unwrap();
 
+    #[cfg(target_os = "windows")]
+    {
+        build_meta();
+    }
     #[cfg(target_os = "macos")]
     {
         link_objc(&out_dir);

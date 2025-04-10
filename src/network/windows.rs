@@ -8,14 +8,14 @@ use winapi::shared::ntdef::PVOID;
 use winapi::shared::winerror::ERROR_SUCCESS;
 use winapi::shared::winerror::NO_ERROR;
 use winapi::shared::ws2def::AF_UNSPEC;
-use winapi::um::wlanapi::wlan_intf_opcode_radio_state;
+use winapi::um::wlanapi::wlan_intf_opcode_interface_state;
 use winapi::um::wlanapi::WlanCloseHandle;
 use winapi::um::wlanapi::WlanEnumInterfaces;
 use winapi::um::wlanapi::WlanFreeMemory;
 use winapi::um::wlanapi::WlanOpenHandle;
 use winapi::um::wlanapi::WlanQueryInterface;
 use winapi::um::wlanapi::WLAN_INTERFACE_INFO_LIST;
-use winapi::um::wlanapi::WLAN_RADIO_STATE;
+use winapi::um::wlanapi::WLAN_INTERFACE_STATE;
 
 use crate::debug_println;
 use crate::utils::log_into_file;
@@ -161,14 +161,14 @@ impl NetworkListener for Network {
 
             let interface_info = interface_list.InterfaceInfo[0]; // Get first Wi-Fi interface
 
-            let mut radio_state_ptr: *mut WLAN_RADIO_STATE = null_mut();
+            let mut radio_state_ptr: *mut WLAN_INTERFACE_STATE = null_mut();
             let mut data_size = 0;
 
             // Query Wi-Fi radio state
             let result = WlanQueryInterface(
                 handle,
                 &interface_info.InterfaceGuid,
-                wlan_intf_opcode_radio_state,
+                wlan_intf_opcode_interface_state,
                 null_mut(),
                 &mut data_size,
                 &mut radio_state_ptr as *mut _ as *mut *mut _,
@@ -184,9 +184,9 @@ impl NetworkListener for Network {
                 WlanCloseHandle(handle, null_mut());
                 return false;
             };
-            let radio_state = *radio_state_ptr;
-            let wifi_enabled = radio_state.PhyRadioState[0].dot11HardwareRadioState == 1
-                && radio_state.PhyRadioState[0].dot11SoftwareRadioState == 1;
+
+            let wifi_enabled = *radio_state_ptr == 1; // connected state
+
             // Cleanup
             Network::free_wlan(interface_list_ptr as *mut _);
             Network::free_wlan(radio_state_ptr as *mut _);

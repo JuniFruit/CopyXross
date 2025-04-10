@@ -238,7 +238,7 @@ fn core_handle(
         // Handle message from UDP
         if res.is_some() {
             let (ip_addr, data) = res.unwrap();
-            if ip_addr.ip() == my_local_ip {
+            if ip_addr.ip() == my_local_ip || ip_addr.ip().is_loopback() {
                 continue;
             }
             let parsed = parse_message(&data).unwrap_or_else(|err| {
