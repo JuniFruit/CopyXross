@@ -178,12 +178,14 @@ fn core_handle(
 
     let nw_change_debounce = Duration::new(2, 0);
     let rediscover_timeframe = Duration::new(60 * 5, 0); // rediscover every 5 min
+    let sleep_timeout = Duration::new(1, 0);
     let mut last_rediscover = Instant::now();
     let mut tcp_buff: Vec<u8> = Vec::with_capacity(5024);
     let mut udp_buff: [u8; 1024] = [0; 1024];
     let mut last_nw_change_time: Option<Instant> = None;
     // main listener loop
     loop {
+        thread::sleep(sleep_timeout);
         if !tcp_buff.is_empty() {
             tcp_buff.clear();
         }

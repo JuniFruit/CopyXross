@@ -145,6 +145,8 @@ pub fn init_listeners(my_ip: IpAddr) -> Result<(UdpSocket, TcpListener), Network
         .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
 
     let tcp = TcpListener::bind(bind).map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
+    s.set_nonblocking(true)
+        .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
     tcp.set_nonblocking(true)
         .map_err(|err| NetworkError::Connect(format!("{:?}", err)))?;
     Ok((s, tcp))
