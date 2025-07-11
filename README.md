@@ -16,8 +16,7 @@ MSI installer is not yet implemented. So only folder download is available.
 
 ### Installation
 
-MacOs bundle is available here: [Google Drive](https://drive.google.com/file/d/14egqjIrCcVgkXdAktNPVt2_I8BZLm8Rq/view?usp=sharing).
-Windows build is here: [Google Drive](https://drive.google.com/file/d/1jaRISSCX-O7P3YFBQ3r-U8kob8ieGtd0/view?usp=sharing).
+You can download assembled app or build from source.
 
 To build from source:
 
