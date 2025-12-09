@@ -29,6 +29,7 @@ For Windows, it's a simple build cmd:
 
 ```
 cargo build --release
+here's a mistake
 
 ```
 
