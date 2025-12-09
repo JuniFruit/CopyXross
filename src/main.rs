@@ -47,7 +47,6 @@ use std::time::Instant;
 use utils::attempt_get_lock;
 use utils::get_pc_name;
 use utils::log_into_file;
-
 #[derive(PartialEq, Debug)]
 #[allow(dead_code)]
 enum SyncMessage {
