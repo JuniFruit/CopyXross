@@ -1,6 +1,6 @@
 # CopyXross App
 
-A small and simple tool Copy/Paste string or files across machines in your local network. Available for both MacOs and Windows.
+A simple tool Copy/Paste string or files across machines in your local network. Available for both MacOs and Windows.
 
 ### Usage
 
